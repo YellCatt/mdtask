@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"encoding/json"
@@ -10,9 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"mdtask/internal/config"
+	"mdtask/internal/notify"
+	"mdtask/internal/status"
+	"mdtask/internal/store"
 )
 
-// 事件类型
 const (
 	evNew     = "new"
 	evDone    = "done"
@@ -30,34 +34,37 @@ type daemonEvent struct {
 type daemonState struct {
 	LastReport  time.Time         `json:"last_report"`
 	LastFire    string            `json:"last_fire"`
-	LastWeekly  string            `json:"last_weekly"`  // 已出过的周报周期，如 2026-W37
-	LastMonthly string            `json:"last_monthly"` // 已出过的月报周期，如 2026-09
-	LastYearly  string            `json:"last_yearly"`  // 已出过的年报周期，如 2026
-	Snapshot    map[string]string `json:"snapshot"`     // id -> 状态
+	LastWeekly  string            `json:"last_weekly"`
+	LastMonthly string            `json:"last_monthly"`
+	LastYearly  string            `json:"last_yearly"`
+	Snapshot    map[string]string `json:"snapshot"`
 	Events      []daemonEvent     `json:"events"`
 }
 
-// eventKeepDays 事件保留天数，要撑得住年报（按月）跨度
 const eventKeepDays = 400
 
 type clock struct{ h, m int }
 
 type daemon struct {
+	st       *store.Store
+	cfg      *config.Config
 	times    []clock
 	interval time.Duration
 	openFile bool
 	state    *daemonState
 }
 
-func cmdDaemon(args []string) {
+func CmdDaemon(st *store.Store, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	at := fs.String("at", strings.Join(cfg.Report.Times, ","), "日报时间，逗号分隔，如 21:00,05:00")
 	interval := fs.Int("interval", cfg.Report.Interval, "扫描 md 变化的间隔（秒）")
 	open := fs.Bool("open", cfg.Report.Open, "生成日报后用默认程序打开")
 	once := fs.Bool("once", false, "立刻生成一份日报并退出（用于测试）")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
-	d := &daemon{interval: time.Duration(*interval) * time.Second, openFile: *open}
+	d := &daemon{st: st, cfg: cfg, interval: time.Duration(*interval) * time.Second, openFile: *open}
 	for _, s := range strings.Split(*at, ",") {
 		s = strings.TrimSpace(s)
 		if s == "" {
@@ -65,12 +72,12 @@ func cmdDaemon(args []string) {
 		}
 		c, err := parseClock(s)
 		if err != nil {
-			fatal(err)
+			return err
 		}
 		d.times = append(d.times, c)
 	}
 	if len(d.times) == 0 {
-		fatal("至少要给一个日报时间")
+		return fmt.Errorf("至少要给一个日报时间")
 	}
 	sort.Slice(d.times, func(i, j int) bool {
 		return d.times[i].h*60+d.times[i].m < d.times[j].h*60+d.times[j].m
@@ -80,27 +87,33 @@ func cmdDaemon(args []string) {
 
 	if *once {
 		d.poll()
-		d.reportPeriod(kDaily, time.Now(), false, cfg.Report.Notify, d.openFile)
-		return
+		CmdReport(st, cfg, []string{"-type", "daily", "-open", boolToStr(d.openFile)})
+		return nil
 	}
 
-	logf("MDTask 常驻已启动，数据文件: %s", st.path)
-	logf("扫描间隔 %s，日报时间 %s", d.interval, strings.Join(strings.Split(*at, ","), " / "))
-	logf("报告目录: %s（周报 %s / 月报 %s / 年报 %s）",
-		d.dailyDir(), weeklyDesc(), monthlyDesc(), yearlyDesc())
+	logf("MDTask 常驻已启动，数据文件: %s", st.Path)
+	logf("扫描间隔 %s，日报时间: %s", d.interval, strings.Join(strings.Split(*at, ","), " / "))
+	logf("报告目录: %s", d.dailyDir())
 	logf("按 Ctrl+C 退出")
 
-	d.poll() // 先建一次快照
-
+	d.poll()
 	ticker := time.NewTicker(d.interval)
 	defer ticker.Stop()
 	for range ticker.C {
 		d.poll()
 		if fire, ok := d.due(time.Now()); ok {
-			d.reportPeriod(kDaily, fire, false, cfg.Report.Notify, d.openFile)
+			CmdReport(st, cfg, []string{"-type", "daily", "-date", fire.Format("2006-01-02")})
 			d.reportScheduled(fire)
 		}
 	}
+	return nil
+}
+
+func boolToStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 func parseClock(s string) (clock, error) {
@@ -126,21 +139,19 @@ func logf(format string, a ...any) {
 	fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, a...))
 }
 
-// ---------- 状态持久化 ----------
-
 func (d *daemon) statePath() string {
-	return filepath.Join(filepath.Dir(st.path), ".mdtask-daemon.json")
+	return filepath.Join(filepath.Dir(d.st.Path), ".mdtask-daemon.json")
 }
 
 func (d *daemon) dailyDir() string {
-	dir := cfg.Report.Dir
+	dir := d.cfg.Report.Dir
 	if dir == "" {
 		dir = ".mdtask-daily"
 	}
 	if filepath.IsAbs(dir) {
 		return dir
 	}
-	return filepath.Join(filepath.Dir(st.path), dir)
+	return filepath.Join(filepath.Dir(d.st.Path), dir)
 }
 
 func (d *daemon) loadState() {
@@ -164,15 +175,12 @@ func (d *daemon) saveState() {
 	os.WriteFile(d.statePath(), b, 0o644)
 }
 
-// ---------- 扫描变化 ----------
-
-// poll 对比上次快照，把新增 / 完成 / 取消 / 删除记成事件
 func (d *daemon) poll() {
-	tasks, _, err := st.List()
+	tasks, _, err := d.st.List()
 	if err != nil {
 		return
 	}
-	arch, _ := st.ListArchive()
+	arch, _ := d.st.ListArchive()
 
 	cur := map[string]string{}
 	title := map[string]string{}
@@ -193,7 +201,7 @@ func (d *daemon) poll() {
 			old, existed := d.state.Snapshot[id]
 			if !existed {
 				d.state.Events = append(d.state.Events, daemonEvent{now, evNew, id, title[id]})
-				if k := closedKind(s); k != "" { // 新建就是结束态
+				if k := closedKind(s); k != "" {
 					d.state.Events = append(d.state.Events, daemonEvent{now, k, id, title[id]})
 				}
 				continue
@@ -212,7 +220,6 @@ func (d *daemon) poll() {
 	}
 
 	d.state.Snapshot = cur
-	// 只保留最近 eventKeepDays 天的事件
 	cutoff := now.AddDate(0, 0, -eventKeepDays)
 	kept := d.state.Events[:0]
 	for _, e := range d.state.Events {
@@ -225,19 +232,16 @@ func (d *daemon) poll() {
 }
 
 func closedKind(s string) string {
-	d := statusDefOf(s)
+	d := status.DefOf(s)
 	if d == nil || !d.Closed {
 		return ""
 	}
-	if d.Key == stCancel {
+	if d.Key == status.Cancel {
 		return evCancel
 	}
 	return evDone
 }
 
-// ---------- 触发判断 ----------
-
-// due 返回该出日报的时间点；错过超过 2 小时就不补报
 func (d *daemon) due(now time.Time) (time.Time, bool) {
 	for _, c := range d.times {
 		fire := time.Date(now.Year(), now.Month(), now.Day(), c.h, c.m, 0, 0, now.Location())
@@ -254,4 +258,13 @@ func (d *daemon) due(now time.Time) (time.Time, bool) {
 		return fire, true
 	}
 	return time.Time{}, false
+}
+
+func (d *daemon) reportScheduled(fire time.Time) {
+	d.state.LastFire = fire.Format("2006-01-02T15:04")
+	d.saveState()
+}
+
+func notifyFallback(title, text string) {
+	notify.Notify(title, text)
 }

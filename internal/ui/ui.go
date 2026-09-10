@@ -1,12 +1,14 @@
-package main
+package ui
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
+
+	"mdtask/internal/store"
 )
 
-// ANSI 颜色码
 const (
 	cReset = "\033[0m"
 	cDim   = "\033[2m"
@@ -20,9 +22,8 @@ const (
 
 var useColor bool
 
-// initColor 颜色开关：config.yaml 的 color > NO_COLOR / MDTASK_COLOR > 是否 TTY
-func initColor() {
-	switch cfg.Color {
+func InitColor(color string) {
+	switch color {
 	case "always":
 		useColor = true
 		return
@@ -37,7 +38,6 @@ func initColor() {
 		useColor = true
 		return
 	}
-	// Windows 老控制台默认不支持 ANSI，其余终端跟随 TTY 判断
 	if runtime.GOOS == "windows" {
 		return
 	}
@@ -45,7 +45,6 @@ func initColor() {
 	useColor = err == nil && (fi.Mode()&os.ModeCharDevice) != 0
 }
 
-// paint 给字符串上色；c 为空串表示不着色
 func paint(c, s string) string {
 	if c == "" || !useColor || s == "" {
 		return s
@@ -53,18 +52,20 @@ func paint(c, s string) string {
 	return c + s + cReset
 }
 
-// ---------- 终端宽度（emoji / 中文按 2 列） ----------
+func Color(c, s string) string { return paint(c, s) }
+
+// ---------- 终端宽度 ----------
 
 func runeWidth(r rune) int {
 	switch {
 	case r < 0x80:
 		return 1
-	case r >= 0xfe00 && r <= 0xfe0f: // 变体选择符，不占宽
+	case r >= 0xfe00 && r <= 0xfe0f:
 		return 0
-	case r >= 0x1f000 && r <= 0x1faff, // 🔴
-		r >= 0x2600 && r <= 0x27bf,    // ✅ ❌
-		r >= 0x2b00 && r <= 0x2bff,    // ⬜
-		r >= 0x2300 && r <= 0x23ff:    // ⏸
+	case r >= 0x1f000 && r <= 0x1faff,
+		r >= 0x2600 && r <= 0x27bf,
+		r >= 0x2b00 && r <= 0x2bff,
+		r >= 0x2300 && r <= 0x23ff:
 		return 2
 	}
 	if r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a ||
@@ -96,7 +97,7 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", n)
 }
 
-func truncate(s string, max int) string {
+func Truncate(s string, max int) string {
 	if dispWidth(s) <= max {
 		return s
 	}
@@ -111,4 +112,65 @@ func truncate(s string, max int) string {
 		out = append(out, r)
 	}
 	return string(out) + "…"
+}
+
+func DueColor(t store.Task) string {
+	if t.Due == "" {
+		return ""
+	}
+	if t.Closed() {
+		return ""
+	}
+	d, err := store.ParseDate(t.Due)
+	if err != nil {
+		return ""
+	}
+	today := store.Today()
+	switch {
+	case d.Before(today):
+		return cRed
+	case d.Equal(today):
+		return cYel
+	default:
+		return cGreen
+	}
+}
+
+func DueText(t store.Task) string {
+	if t.Due == "" {
+		return ""
+	}
+	if t.Closed() {
+		return t.Due
+	}
+	d, err := store.ParseDate(t.Due)
+	if err != nil {
+		return t.Due
+	}
+	today := store.Today()
+	if d.Before(today) {
+		diff := int(today.Sub(d).Hours() / 24)
+		return fmt.Sprintf("%s 逾期 %d 天", t.Due, diff)
+	}
+	if d.Equal(today) {
+		return t.Due + " 今天到期"
+	}
+	diff := int(d.Sub(today).Hours() / 24)
+	if diff <= 3 {
+		return fmt.Sprintf("%s 还有 %d 天", t.Due, diff)
+	}
+	return t.Due
+}
+
+func PriorityColor(p string) string {
+	switch strings.ToLower(p) {
+	case "high":
+		return cRed
+	case "mid", "medium":
+		return cYel
+	case "low":
+		return cBlue
+	default:
+		return ""
+	}
 }

@@ -1,6 +1,7 @@
-package main
+package store
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"time"
 )
+
+var ErrNotFound = errors.New("任务不存在")
 
 // 标准字段列名，跟 md 表头对应（通过别名表宽容匹配）
 const (
@@ -48,15 +51,15 @@ func canonField(col string) string {
 // Store 以 md 文件为唯一数据源。表格之外的所有内容（标题、说明、其它段落）都会原样保留。
 type Store struct {
 	mu     sync.Mutex
-	path   string
-	backup bool
+	Path   string
+	Backup bool
 
 	crlf      bool
 	dirty     bool
 	lines     []string
 	main      *tbl
 	arch      *tbl
-	archTitle string // 归档章节标题
+	ArchTitle string
 }
 
 func NewStore(path string, backup bool) *Store {
@@ -64,7 +67,7 @@ func NewStore(path string, backup bool) *Store {
 	if title == "" {
 		title = "归档"
 	}
-	return &Store{path: path, backup: backup, archTitle: title}
+	return &Store{Path: path, Backup: backup, ArchTitle: title}
 }
 
 // Init 首次加载，按需补齐缺失列 / 编号并落盘。
@@ -82,13 +85,13 @@ func (s *Store) Init() error {
 
 func (s *Store) Load() error {
 	s.dirty = false
-	b, err := os.ReadFile(s.path)
+	b, err := os.ReadFile(s.Path)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return err
 		}
 		b = []byte(defaultDoc())
-		s.dirty = true // 文件不存在，初始化时落盘生成
+		s.dirty = true
 	}
 	raw := string(b)
 	s.crlf = strings.Count(raw, "\r\n") > 0
@@ -105,8 +108,7 @@ func (s *Store) Load() error {
 		s.dirty = true
 	}
 
-	// 归档章节（必须在主表之后）
-	if hi := findHeadingFrom(s.lines, s.archTitle, s.main.end); hi >= 0 {
+	if hi := findHeadingFrom(s.lines, s.ArchTitle, s.main.end); hi >= 0 {
 		if x, y := locateTableFrom(s.lines, hi+1); x >= 0 {
 			s.arch = &tbl{start: x, end: y}
 			if s.arch.parse(s.lines) {
@@ -154,7 +156,6 @@ func (s *Store) Update(fn func(st *Store) error) error {
 }
 
 // Archive 把主表里满足条件的任务搬进归档表，返回搬走的数量。
-// 没有命中时不会新建归档章节，避免无谓改动文件。
 func (s *Store) Archive(pred func(Task) bool) int {
 	rest := make([]Task, 0, len(s.main.tasks))
 	var hit []Task
@@ -174,6 +175,40 @@ func (s *Store) Archive(pred func(Task) bool) int {
 	return len(hit)
 }
 
+func (s *Store) AddTask(t Task) error {
+	s.main.tasks = append(s.main.tasks, t)
+	return nil
+}
+
+func (s *Store) UpdateTask(id string, fn func(*Task) error) error {
+	for i := range s.main.tasks {
+		if s.main.tasks[i].ID == id {
+			return fn(&s.main.tasks[i])
+		}
+	}
+	return ErrNotFound
+}
+
+func (s *Store) SetTaskStatus(id, status string) error {
+	for i := range s.main.tasks {
+		if s.main.tasks[i].ID == id {
+			s.main.tasks[i].Status = status
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (s *Store) RemoveTask(id string) error {
+	for i := range s.main.tasks {
+		if s.main.tasks[i].ID == id {
+			s.main.tasks = append(s.main.tasks[:i], s.main.tasks[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 // ensureArchive 没有归档章节就在文件末尾建一个
 func (s *Store) ensureArchive() {
 	if s.arch != nil {
@@ -186,7 +221,7 @@ func (s *Store) ensureArchive() {
 	if strings.TrimSpace(s.lines[len(s.lines)-1]) != "" {
 		s.lines = append(s.lines, "")
 	}
-	s.lines = append(s.lines, "## "+s.archTitle, "")
+	s.lines = append(s.lines, "## "+s.ArchTitle, "")
 	start := len(s.lines)
 	s.lines = append(s.lines, headerRows(cols)...)
 
@@ -217,7 +252,7 @@ func (s *Store) createMainTable() {
 	s.dirty = true
 }
 
-func (s *Store) nextID() string {
+func (s *Store) NextID() string {
 	max := 0
 	scan := func(ts []Task) {
 		for _, t := range ts {
@@ -233,8 +268,6 @@ func (s *Store) nextID() string {
 	return strconv.Itoa(max + 1)
 }
 
-// ---------- 写回 ----------
-
 func (s *Store) flush() error {
 	type repl struct {
 		start, end int
@@ -247,7 +280,6 @@ func (s *Store) flush() error {
 	if s.arch != nil {
 		rs = append(rs, repl{s.arch.start, s.arch.end, s.arch.render()})
 	}
-	// start 大的先替换，这样前面的行号不受影响
 	sort.Slice(rs, func(i, j int) bool { return rs[i].start > rs[j].start })
 
 	out := append([]string(nil), s.lines...)
@@ -263,14 +295,13 @@ func (s *Store) flush() error {
 	if s.crlf {
 		nlSep = "\r\n"
 	}
-	if s.backup {
-		backupFile(s.path)
+	if s.Backup {
+		backupFile(s.Path)
 	}
 	s.dirty = false
-	return atomicWrite(s.path, []byte(strings.Join(out, nlSep)))
+	return atomicWrite(s.Path, []byte(strings.Join(out, nlSep)))
 }
 
-// atomicWrite 先写临时文件再改名，避免写一半崩掉毁掉原文件
 func atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".mdtask-*.tmp")
@@ -289,7 +320,6 @@ func atomicWrite(path string, data []byte) error {
 	}
 	os.Chmod(name, 0o644)
 	if err := os.Rename(name, path); err != nil {
-		// Windows 上目标已存在时 rename 会失败，先删再改
 		if rmErr := os.Remove(path); rmErr == nil {
 			if err2 := os.Rename(name, path); err2 == nil {
 				return nil
@@ -301,7 +331,6 @@ func atomicWrite(path string, data []byte) error {
 	return nil
 }
 
-// backupFile 写前备份到 .mdtask-backup/，只保留最近 10 份。
 func backupFile(path string) {
 	src, err := os.ReadFile(path)
 	if err != nil {
@@ -327,7 +356,3 @@ func backupFile(path string) {
 		os.Remove(filepath.Join(dir, n))
 	}
 }
-
-type errNotFound struct{ id string }
-
-func (e errNotFound) Error() string { return "任务不存在: " + e.id }

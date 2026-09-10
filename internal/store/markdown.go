@@ -1,4 +1,4 @@
-package main
+package store
 
 import "strings"
 
@@ -6,7 +6,7 @@ import "strings"
 
 func defaultDoc() string {
 	return "# 任务清单\n\n" +
-		"| 状态 | ID | 标题 | 优先级 | 截止日期 | 备注 |\n" +
+		"| 状�?| ID | 标题 | 优先�?| 截止日期 | 备注 |\n" +
 		"|------|------|--------|--------|----------|------|\n"
 }
 
@@ -39,7 +39,7 @@ func isSeparatorRow(line string) bool {
 	return true
 }
 
-// locateTableFrom 从 from 行开始找第一个 markdown 表格，返回 [表头行, 结束行)
+// locateTableFrom �?from 行开始找第一�?markdown 表格，返�?[表头�? 结束�?
 func locateTableFrom(lines []string, from int) (int, int) {
 	for i := from; i+1 < len(lines); i++ {
 		if !isTableRow(lines[i]) || isSeparatorRow(lines[i]) {
@@ -57,8 +57,7 @@ func locateTableFrom(lines []string, from int) (int, int) {
 	return -1, -1
 }
 
-// findHeadingFrom 找指定标题的行号（"## 归档"）
-func findHeadingFrom(lines []string, title string, from int) int {
+// findHeadingFrom 找指定标题的行号�?## 归档"�?func findHeadingFrom(lines []string, title string, from int) int {
 	want := strings.ToLower(strings.TrimSpace(title))
 	for i := from; i < len(lines); i++ {
 		l := strings.TrimSpace(lines[i])
@@ -73,10 +72,9 @@ func findHeadingFrom(lines []string, title string, from int) int {
 	return -1
 }
 
-// ---------- 单元格 ----------
+// ---------- 单元�?----------
 
-// splitRow 按未转义的 | 拆分单元格，并还原 \| 与 <br>。
-func splitRow(line string) []string {
+// splitRow 按未转义�?| 拆分单元格，并还�?\| �?<br>�?func splitRow(line string) []string {
 	l := strings.TrimSpace(line)
 	l = strings.TrimPrefix(l, "|")
 	l = strings.TrimSuffix(l, "|")
@@ -126,3 +124,4 @@ func escapeAll(ss []string) []string {
 	}
 	return out
 }
+

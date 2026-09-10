@@ -1,13 +1,15 @@
-package main
+package ui
 
 import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"mdtask/internal/status"
+	"mdtask/internal/store"
 )
 
-// printTable 把任务渲染成终端表格，列宽按显示宽度（emoji/中文算 2 列）对齐
-func printTable(tasks []Task, summary bool) {
+func PrintTable(tasks []store.Task, summary bool) {
 	if len(tasks) == 0 {
 		fmt.Println(paint(cDim, "（没有任务）"))
 		return
@@ -17,12 +19,12 @@ func printTable(tasks []Task, summary bool) {
 	rows := make([][]string, 0, len(tasks))
 	for _, t := range tasks {
 		rows = append(rows, []string{
-			statusLabel(t.Status),
+			status.Label(t.Status),
 			t.ID,
 			prioLabel(t.Priority),
-			truncate(oneLine(t.Title), 44),
+			Truncate(oneLine(t.Title), 44),
 			t.Due,
-			truncate(oneLine(t.Note), 30),
+			Truncate(oneLine(t.Note), 30),
 		})
 	}
 
@@ -50,12 +52,12 @@ func printTable(tasks []Task, summary bool) {
 		for j, c := range r {
 			cells[j] = pad(c, widths[j])
 		}
-		cells[0] = pad(paint(statusColor(t.Status), statusLabel(t.Status)), widths[0])
+		cells[0] = pad(paint(statusColor(t.Status), status.Label(t.Status)), widths[0])
 		cells[1] = paint(cDim, cells[1])
-		cells[2] = pad(paint(prioColor(t.Priority), prioLabel(t.Priority)), widths[2])
-		cells[4] = pad(paint(dueColor(t, t.Due), t.Due), widths[4])
+		cells[2] = pad(paint(PriorityColor(t.Priority), prioLabel(t.Priority)), widths[2])
+		cells[4] = pad(paint(DueColor(t), DueText(t)), widths[4])
 		cells[5] = paint(cGray, cells[5])
-		if isClosedStatus(t.Status) { // 结束态整行淡显
+		if t.Closed() {
 			cells[3] = paint(cDim, cells[3])
 		}
 		fmt.Println(strings.Join(cells, "  "))
@@ -66,23 +68,28 @@ func printTable(tasks []Task, summary bool) {
 	}
 	n := map[string]int{}
 	for _, t := range tasks {
-		if d := statusDefOf(t.Status); d != nil {
+		if d := status.DefOf(t.Status); d != nil {
 			n[d.Key]++
 		} else {
 			n["待办"]++
 		}
 	}
-	parts := make([]string, 0, len(statusDefs)+1)
+	parts := make([]string, 0, 5)
 	if n["待办"] > 0 {
 		parts = append(parts, fmt.Sprintf("待办 %d", n["待办"]))
 	}
-	for i := range statusDefs {
-		if n[statusDefs[i].Key] > 0 {
-			parts = append(parts, fmt.Sprintf("%s %d", statusDefs[i].Label, n[statusDefs[i].Key]))
+	for _, d := range []*status.StatusDef{
+		status.DefOf(status.Doing),
+		status.DefOf(status.Hold),
+		status.DefOf(status.Done),
+		status.DefOf(status.Cancel),
+	} {
+		if d != nil && n[d.Key] > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", d.Label, n[d.Key]))
 		}
 	}
 	fmt.Println()
-	fmt.Println(paint(cGray, fmt.Sprintf("共 %d 项 · %s", len(tasks), strings.Join(parts, " · "))))
+	fmt.Println(paint(cGray, fmt.Sprintf("· %d 项 · %s", len(tasks), strings.Join(parts, " · "))))
 }
 
 // ---------- 辅助 ----------
@@ -91,16 +98,16 @@ func oneLine(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "\r", " "), "\n", " ")
 }
 
-func allText(t Task) string {
+func AllText(t store.Task) string {
 	var b strings.Builder
 	b.WriteString(t.ID + " " + t.Title + " " + t.Status + " " + t.Priority + " " + t.Due + " " + t.Note)
-	for _, kv := range sortedExtra(t.Extra) {
+	for _, kv := range SortedExtra(t.Extra) {
 		b.WriteString(" " + kv[1])
 	}
 	return b.String()
 }
 
-func sortedExtra(m map[string]string) [][2]string {
+func SortedExtra(m map[string]string) [][2]string {
 	if len(m) == 0 {
 		return nil
 	}
@@ -112,8 +119,8 @@ func sortedExtra(m map[string]string) [][2]string {
 	return out
 }
 
-func filterTasks(tasks []Task, f func(Task) bool) []Task {
-	out := make([]Task, 0, len(tasks))
+func FilterTasks(tasks []store.Task, f func(store.Task) bool) []store.Task {
+	out := make([]store.Task, 0, len(tasks))
 	for _, t := range tasks {
 		if f(t) {
 			out = append(out, t)
@@ -122,10 +129,9 @@ func filterTasks(tasks []Task, f func(Task) bool) []Task {
 	return out
 }
 
-// sortTasks 待办 → 进行中 → 停滞 → 完成/取消，同级按优先级、截止日期
-func sortTasks(tasks []Task) {
+func SortTasks(tasks []store.Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		a, b := statusRankOf(tasks[i].Status), statusRankOf(tasks[j].Status)
+		a, b := status.RankOf(tasks[i].Status), status.RankOf(tasks[j].Status)
 		if a != b {
 			return a < b
 		}
@@ -137,7 +143,20 @@ func sortTasks(tasks []Task) {
 	})
 }
 
-func prioRank(t Task) int {
+func prioLabel(p string) string {
+	switch strings.ToLower(strings.TrimSpace(p)) {
+	case "high":
+		return "高"
+	case "mid", "medium":
+		return "中"
+	case "low":
+		return "低"
+	default:
+		return ""
+	}
+}
+
+func prioRank(t store.Task) int {
 	switch strings.ToLower(strings.TrimSpace(t.Priority)) {
 	case "high":
 		return 3
@@ -149,7 +168,6 @@ func prioRank(t Task) int {
 	return 0
 }
 
-// dueKey 没写截止日期的排最后
 func dueKey(v string) string {
 	if strings.TrimSpace(v) == "" {
 		return "9999-99-99"
@@ -157,11 +175,25 @@ func dueKey(v string) string {
 	return v
 }
 
-func findTask(tasks []Task, id string) (Task, bool) {
+func FindTask(tasks []store.Task, id string) (store.Task, bool) {
 	for _, t := range tasks {
 		if t.ID == id {
 			return t, true
 		}
 	}
-	return Task{}, false
+	return store.Task{}, false
+}
+
+func statusColor(s string) string {
+	if status.IsClosed(s) {
+		return cGray
+	}
+	switch strings.TrimSpace(s) {
+	case status.Doing:
+		return cBlue
+	case status.Hold:
+		return cYel
+	default:
+		return ""
+	}
 }

@@ -1,5 +1,3 @@
-// MDTask — 用 Markdown 表格管理任务的命令行工具。
-// 数据只存在 md 文件里，表格之外的内容（标题、说明、其它段落）原样保留。
 package main
 
 import (
@@ -7,13 +5,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mdtask/internal/app"
+	"mdtask/internal/config"
+	"mdtask/internal/status"
+	"mdtask/internal/store"
+	"mdtask/internal/ui"
 )
 
-var st *Store
-
 func main() {
-	file, config, noBackup, rest := splitArgs(os.Args[1:])
-	loadConfig(config)
+	file, configPath, noBackup, rest := splitArgs(os.Args[1:])
+
+	cfg, _, err := config.Load(configPath)
+	if err != nil {
+		fatal(err)
+	}
 
 	if file == "" {
 		file = os.Getenv("MDTASK_FILE")
@@ -29,16 +35,10 @@ func main() {
 		fatal(err)
 	}
 
-	initColor()
-	st = NewStore(abs, cfg.Backup && !noBackup)
-	if h := os.Getenv("MDTASK_ARCHIVE_HEADING"); h != "" {
-		st.archTitle = h
-	} else {
-		st.archTitle = cfg.Archive.Heading
-	}
-	initAutoArchive()
+	ui.InitColor(cfg.Color)
+	st := store.NewStore(abs, cfg.Backup && !noBackup)
 
-	if err := st.Init(); err != nil {
+	if err := st.Load(); err != nil {
 		fatal(fmt.Errorf("打开 %s 失败: %w", abs, err))
 	}
 
@@ -48,52 +48,54 @@ func main() {
 		cmd, args = rest[0], rest[1:]
 	}
 
+	var runErr error
 	switch cmd {
 	case "ls", "list", "l":
-		cmdList(args)
+		runErr = app.CmdList(st, cfg, args)
 	case "add", "new", "a":
-		cmdAdd(args)
+		runErr = app.CmdAdd(st, cfg, args)
 	case "show", "s":
-		cmdShow(args)
+		runErr = app.CmdShow(st, cfg, args)
 	case "edit", "e":
-		cmdEdit(args)
+		runErr = app.CmdEdit(st, cfg, args)
 	case "mark", "m", "st":
-		cmdMark(args)
+		runErr = app.CmdMark(st, cfg, args)
 	case "done":
-		cmdSetStatus(stDone, args)
+		runErr = app.CmdSetStatus(st, cfg, status.Done, args)
 	case "doing":
-		cmdSetStatus(stDoing, args)
+		runErr = app.CmdSetStatus(st, cfg, status.Doing, args)
 	case "hold":
-		cmdSetStatus(stHold, args)
+		runErr = app.CmdSetStatus(st, cfg, status.Hold, args)
 	case "cancel", "drop":
-		cmdSetStatus(stCancel, args)
+		runErr = app.CmdSetStatus(st, cfg, status.Cancel, args)
 	case "todo":
-		cmdSetStatus("", args)
+		runErr = app.CmdSetStatus(st, cfg, "", args)
 	case "archive", "arch":
-		cmdArchive(args)
+		runErr = app.CmdArchive(st, cfg, args)
 	case "rm", "del", "remove":
-		cmdRemove(args)
+		runErr = app.CmdRemove(st, cfg, args)
 	case "daemon", "d":
-		cmdDaemon(args)
+		runErr = app.CmdDaemon(st, cfg, args)
 	case "report", "r", "rp":
-		cmdReport(args)
+		runErr = app.CmdReport(st, cfg, args)
 	case "mail", "ipmail":
-		cmdMail(args)
+		runErr = app.CmdMail(st, cfg, args)
 	case "install":
-		cmdInstall(args)
+		runErr = app.CmdInstall(st, cfg, args)
 	case "uninstall":
-		cmdUninstall(args)
-	case "init":
-		cmdInit(args)
+		runErr = app.CmdUninstall(st, cfg, args)
 	case "path":
-		fmt.Println(st.path)
+		runErr = app.CmdPath(st, cfg, args)
 	case "open":
-		openFile(st.path)
+		runErr = app.CmdOpen(st, cfg, args)
 	case "help", "-h", "--help", "-help":
-		fmt.Print(usage)
+		fmt.Print(app.Usage)
 	default:
-		fmt.Fprintf(os.Stderr, "未知命令: %s\n\n%s", cmd, usage)
+		fmt.Fprintf(os.Stderr, "未知命令: %s\n\n%s", cmd, app.Usage)
 		os.Exit(2)
+	}
+	if runErr != nil {
+		fatal(runErr)
 	}
 }
 
@@ -102,7 +104,6 @@ func fatal(v any) {
 	os.Exit(1)
 }
 
-// splitArgs 挑出写在命令之前的 -file / -config / -no-backup，其余原样交给子命令
 func splitArgs(args []string) (file, config string, noBackup bool, rest []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]

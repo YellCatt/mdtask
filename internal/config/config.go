@@ -1,23 +1,23 @@
-package main
+package config
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mdtask/internal/status"
 )
 
-// config.yaml 的结构
 type Config struct {
 	File   string `yaml:"file"`
 	Backup bool   `yaml:"backup"`
-	Color  string `yaml:"color"` // auto / always / never
+	Color  string `yaml:"color"`
 
 	Archive struct {
 		Heading      string `yaml:"heading"`
-		Auto         int    `yaml:"auto"`          // -1 关闭，0 立刻归档，N 天后归档
-		IncludeStuck bool   `yaml:"include_stuck"` // 归档时连停滞一起搬
+		Auto         int    `yaml:"auto"`
+		IncludeStuck bool   `yaml:"include_stuck"`
 	} `yaml:"archive"`
 
 	Report struct {
@@ -26,19 +26,19 @@ type Config struct {
 		Open     bool     `yaml:"open"`
 		Notify   bool     `yaml:"notify"`
 		Dir      string   `yaml:"dir"`
-		Weekly   int      `yaml:"weekly"`  // 周几出周报: 1=周一 … 7=周日，0=关闭
-		Monthly  int      `yaml:"monthly"` // 每月几号出月报，0=关闭
-		Yearly   string   `yaml:"yearly"`  // 出年报的日期 MM-DD，空=关闭
+		Weekly   int      `yaml:"weekly"`
+		Monthly  int      `yaml:"monthly"`
+		Yearly   string   `yaml:"yearly"`
 	} `yaml:"report"`
 
 	Mail struct {
-		SMTPHost      string `yaml:"smtp_host"`       // SMTP 服务器，如 smtp.qq.com
-		SMTPPort      int    `yaml:"smtp_port"`       // 465 = 直连 TLS
-		FromEmail     string `yaml:"from_email"`      // 发件邮箱
-		AuthCode      string `yaml:"auth_code"`       // 授权码 / 密码
-		ToEmail       string `yaml:"to_email"`        // 收件人，多个用逗号分隔
-		TLSSkipVerify bool   `yaml:"tls_skip_verify"` // 自签证书时才开
-		Timeout       int    `yaml:"timeout"`         // 连接超时（秒）
+		SMTPHost      string `yaml:"smtp_host"`
+		SMTPPort      int    `yaml:"smtp_port"`
+		FromEmail     string `yaml:"from_email"`
+		AuthCode      string `yaml:"auth_code"`
+		ToEmail       string `yaml:"to_email"`
+		TLSSkipVerify bool   `yaml:"tls_skip_verify"`
+		Timeout       int    `yaml:"timeout"`
 	} `yaml:"mail"`
 }
 
@@ -107,7 +107,7 @@ mail:
   timeout: 15
 `
 
-func defaultConfig() *Config {
+func Default() *Config {
 	c := &Config{File: "tasks.md", Backup: true, Color: "auto"}
 	c.Archive.Heading = "归档"
 	c.Archive.Auto = -1
@@ -124,22 +124,21 @@ func defaultConfig() *Config {
 	return c
 }
 
-var cfg = defaultConfig()
-
-// cfgPathUsed 实际生效的配置文件路径，install 时要写进启动命令
-var cfgPathUsed string
-
-// loadConfig 读取配置；explicit 为空时依次找 ./config.yaml、./config.yml。
-// 一个都没有就按默认配置自动生成一份再读，省得手工 init。
-func loadConfig(explicit string) {
+// Load 读取配置；explicit 为空时依次找 ./config.yaml、./config.yml。
+// 返回配置、实际使用的配置文件路径、以及可能的错误。
+// 如果没找到配置文件，会自动生成一份默认配置并读取。
+func Load(explicit string) (*Config, string, error) {
+	cfg := Default()
 	candidates := []string{"config.yaml", "config.yml"}
 	if explicit != "" {
 		candidates = []string{explicit}
 	}
 	for _, p := range candidates {
 		if b, err := os.ReadFile(p); err == nil {
-			loadConfigBytes(p, b)
-			return
+			if err := loadBytes(cfg, p, b); err != nil {
+				return nil, "", err
+			}
+			return cfg, p, nil
 		}
 	}
 
@@ -147,34 +146,30 @@ func loadConfig(explicit string) {
 	if explicit != "" {
 		target = explicit
 	}
-	if err := writeDefaultConfig(target); err == nil {
-		loadConfigBytes(target, []byte(configHelp))
+	if err := writeDefault(target); err == nil {
+		if err := loadBytes(cfg, target, []byte(configHelp)); err != nil {
+			return nil, "", err
+		}
 		if abs, err := filepath.Abs(target); err == nil {
 			target = abs
 		}
 		fmt.Printf("没找到配置文件，已自动生成 %s\n", target)
 	} else {
 		fmt.Printf("自动生成配置文件 %s 失败（%v），本次用内置默认配置\n", target, err)
-		cfgPathUsed = ""
 	}
+	return cfg, target, nil
 }
 
-// loadConfigBytes 解析并套用配置内容
-func loadConfigBytes(path string, b []byte) {
+func loadBytes(cfg *Config, path string, b []byte) error {
 	root, err := parseYAML(string(b))
 	if err != nil {
-		fatal(fmt.Errorf("配置文件 %s 解析失败: %w", path, err))
+		return fmt.Errorf("配置文件 %s 解析失败: %w", path, err)
 	}
-	applyConfig(cfg, root)
-	if abs, err := filepath.Abs(path); err == nil {
-		cfgPathUsed = abs
-	} else {
-		cfgPathUsed = path
-	}
+	apply(cfg, root)
+	return nil
 }
 
-// writeDefaultConfig 写一份带注释的默认配置，父目录不存在就一起建
-func writeDefaultConfig(path string) error {
+func writeDefault(path string) error {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
@@ -183,7 +178,7 @@ func writeDefaultConfig(path string) error {
 	return os.WriteFile(path, []byte(configHelp), 0o644)
 }
 
-func applyConfig(c *Config, n *yamlNode) {
+func apply(c *Config, n *yamlNode) {
 	if v, ok := n.val("file"); ok && v.str() != "" {
 		c.File = v.str()
 	}
@@ -199,7 +194,7 @@ func applyConfig(c *Config, n *yamlNode) {
 		for _, k := range []string{"done", "doing", "hold", "cancel"} {
 			if v, ok2 := m.val(k); ok2 {
 				if s := strings.TrimSpace(v.str()); s != "" {
-					setStatusEmoji(k, s)
+					status.SetEmoji(k, s)
 				}
 			}
 		}
@@ -286,38 +281,4 @@ func applyConfig(c *Config, n *yamlNode) {
 			}
 		}
 	}
-}
-
-var statusIndex = map[string]int{"done": 0, "doing": 1, "hold": 2, "cancel": 3}
-
-// setStatusEmoji 换图标，同时把旧图标留作别名，免得老数据认不出来
-func setStatusEmoji(name, emoji string) {
-	i, ok := statusIndex[name]
-	if !ok {
-		return
-	}
-	old := statusDefs[i].Key
-	if old == emoji {
-		return
-	}
-	statusDefs[i].Key = emoji
-	statusDefs[i].Alias = append(statusDefs[i].Alias, old)
-}
-
-// cmdInit 在当前目录生成一份带注释的默认 config.yaml
-func cmdInit(args []string) {
-	fs := flag.NewFlagSet("init", flag.ExitOnError)
-	force := fs.Bool("force", false, "已存在时覆盖")
-	fs.Parse(args)
-
-	path := "config.yaml"
-	if _, err := os.Stat(path); err == nil && !*force {
-		fmt.Printf("%s 已存在，没动它（要覆盖加 -force）\n", path)
-		return
-	}
-	if err := writeDefaultConfig(path); err != nil {
-		fatal(err)
-	}
-	abs, _ := filepath.Abs(path)
-	fmt.Printf("已生成 %s\n", abs)
 }

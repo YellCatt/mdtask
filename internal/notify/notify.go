@@ -1,4 +1,4 @@
-package main
+package notify
 
 import (
 	"fmt"
@@ -8,8 +8,7 @@ import (
 	"strings"
 )
 
-// notify 弹一条系统通知：Windows 托盘气泡 / Linux notify-send / macOS osascript
-func notify(title, text string) {
+func Notify(title, text string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
@@ -34,11 +33,10 @@ func notify(title, text string) {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {
-		logf("系统通知发送失败（不影响日报文件）: %v", err)
+		fmt.Fprintf(os.Stderr, "系统通知发送失败: %v\n", err)
 	}
 }
 
-// psQuote 转义后放进 PowerShell 单引号字符串
 func psQuote(s string) string {
 	s = strings.ReplaceAll(s, "'", "''")
 	s = strings.ReplaceAll(s, "\n", "`n")
@@ -46,8 +44,7 @@ func psQuote(s string) string {
 	return s
 }
 
-// openFile 用系统默认程序打开
-func openFile(path string) {
+func OpenFile(path string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
@@ -59,7 +56,5 @@ func openFile(path string) {
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fatal(err)
-	}
+	return cmd.Run()
 }

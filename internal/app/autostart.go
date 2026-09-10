@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"flag"
@@ -7,34 +7,38 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
+	"mdtask/internal/config"
+	"mdtask/internal/notify"
+	"mdtask/internal/store"
 )
 
-// cmdInstall 把 daemon 装进开机启动项：Windows 启动文件夹 .vbs / Linux systemd --user
-func cmdInstall(args []string) {
+func CmdInstall(st *store.Store, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	exe, err := os.Executable()
 	if err != nil {
-		fatal(err)
+		return err
 	}
 	exe, _ = filepath.Abs(exe)
-	data, _ := filepath.Abs(st.path)
+	data, _ := filepath.Abs(st.Path)
 
-	// 启动参数里带上配置文件，避免开机启动时工作目录不同导致找不到
 	runArgs := fmt.Sprintf(`-file "%s"`, data)
-	if cfgPathUsed != "" {
-		runArgs += fmt.Sprintf(` -config "%s"`, cfgPathUsed)
+	if pathEnv := os.Getenv("MDTASK_CONFIG_PATH"); pathEnv != "" {
+		runArgs += fmt.Sprintf(` -config "%s"`, pathEnv)
 	}
 
 	switch runtime.GOOS {
 	case "windows":
-		dir, err := os.UserConfigDir() // %APPDATA%
+		dir, err := os.UserConfigDir()
 		if err != nil {
-			fatal(err)
+			return err
 		}
 		startup := filepath.Join(dir, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
 		if err := os.MkdirAll(startup, 0o755); err != nil {
-			fatal(err)
+			return err
 		}
 		vbs := filepath.Join(startup, "mdtask.vbs")
 		content := fmt.Sprintf(
@@ -43,19 +47,19 @@ func cmdInstall(args []string) {
 				"ws.Run \"\"\"%s\"\" %s daemon\", 0, False\n",
 			filepath.Dir(exe), exe, runArgs)
 		if err := os.WriteFile(vbs, []byte(content), 0o644); err != nil {
-			fatal(err)
+			return err
 		}
-		fmt.Printf("已安装开机启动: %s\n", vbs)
-		fmt.Println("注销再登录或重启后生效；现在也可以直接双击它启动。")
+		fmt.Printf("已安装开机启动 %s\n", vbs)
+		fmt.Println("注销再登录或重启后生效；现在也可以直接双击它启动")
 
 	case "linux", "darwin":
 		home, err := os.UserHomeDir()
 		if err != nil {
-			fatal(err)
+			return err
 		}
 		dir := filepath.Join(home, ".config", "systemd", "user")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			fatal(err)
+			return err
 		}
 		unit := fmt.Sprintf(`[Unit]
 Description=MDTask daemon
@@ -73,45 +77,53 @@ WantedBy=default.target
 `, filepath.Dir(data), exe, runArgs)
 		path := filepath.Join(dir, "mdtask.service")
 		if err := os.WriteFile(path, []byte(unit), 0o644); err != nil {
-			fatal(err)
+			return err
 		}
 		fmt.Printf("已写入 %s\n", path)
 		if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err == nil {
 			if err := exec.Command("systemctl", "--user", "enable", "--now", "mdtask").Run(); err == nil {
-				fmt.Println("已设置开机启动并立即运行：systemctl --user status mdtask 可查看状态")
-				return
+				fmt.Println("已设置开机启动并立即运行")
+				return nil
 			}
 		}
 		fmt.Println("请手动执行：systemctl --user daemon-reload && systemctl --user enable --now mdtask")
 
 	default:
-		fatal("暂不支持自动安装，请手动把 `mdtask daemon` 加到开机启动项")
+		return fmt.Errorf("暂不支持自动安装，请手动把 `mdtask daemon` 加到开机启动项")
 	}
+	return nil
 }
 
-func cmdUninstall(args []string) {
+func CmdUninstall(st *store.Store, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	switch runtime.GOOS {
 	case "windows":
 		dir, err := os.UserConfigDir()
 		if err != nil {
-			fatal(err)
+			return err
 		}
 		p := filepath.Join(dir, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "mdtask.vbs")
 		if err := os.Remove(p); err != nil {
-			fatal(err)
+			return err
 		}
-		fmt.Println("已移除开机启动:", p)
+		fmt.Println("已移除开机启动", p)
 	case "linux", "darwin":
 		exec.Command("systemctl", "--user", "disable", "--now", "mdtask").Run()
 		home, _ := os.UserHomeDir()
 		p := filepath.Join(home, ".config", "systemd", "user", "mdtask.service")
 		if err := os.Remove(p); err != nil {
-			fatal(err)
+			return err
 		}
-		fmt.Println("已移除:", p)
+		fmt.Println("已移除", p)
 	default:
-		fatal("暂不支持")
+		return fmt.Errorf("暂不支持")
 	}
+	return nil
+}
+
+func CmdOpen(st *store.Store, cfg *config.Config, args []string) error {
+	return notify.OpenFile(st.Path)
 }
