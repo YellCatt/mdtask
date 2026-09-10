@@ -209,3 +209,38 @@ func CmdPath(st *store.Store, cfg *config.Config, args []string) error {
 	fmt.Println(st.Dir)
 	return nil
 }
+
+const Usage = `MDTask — 基于 Markdown 的任务清单
+
+用法:
+  mdtask [-file <dir>] [-config <path>] [-no-backup] <命令> [参数]
+
+命令:
+  ls, list, l              列出任务  [-s 状态] [-p 优先级] [-q 关键词] [-a]
+  add, new, a <标题>       添加任务  [-s 状态] [-p 优先级] [-d 日期] [-n 备注]
+  show, s <id...>          查看详情
+  edit, e <id>             修改任务  [-t 标题] [-s 状态] [-p 优先级] [-d 日期] [-n 备注]
+  mark, m, st <id> <状态>  标记状态
+  done|doing|hold|cancel|todo <id...>
+                           快捷状态切换
+  archive, arch            归档已关闭任务  [-before YYYY-MM-DD] [-days N] [-all]
+  rm, del, remove <id...>  删除任务
+  report, r, rp            生成报告  [-type daily|weekly|monthly|yearly] [-date YYYY-MM-DD] [-last] [-open]
+  daemon, d                常驻后台  [-at HH:MM,HH:MM] [-interval 秒] [-open] [-once]
+  mail, ipmail             发送邮件（待实现）
+  install                  安装开机启动
+  uninstall                卸载开机启动
+  path                     显示数据目录
+  open                     用默认程序打开数据目录
+  help, -h, --help         显示本帮助
+
+全局参数:
+  -file, -f      指定数据目录
+  -config, -c    指定配置文件
+  -no-backup     本次运行不做备份
+
+环境变量:
+  MDTASK_FILE           默认数据目录
+  MDTASK_CONFIG_PATH    默认配置文件路径
+  MDTASK_AUTO_ARCHIVE   自动归档天数（0 表示关闭）
+`
