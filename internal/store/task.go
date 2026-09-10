@@ -8,7 +8,8 @@ import (
 	"mdtask/internal/status"
 )
 
-// Task 一行任务。不认识的列原样存在 Extra 里，写回时不会丢�?type Task struct {
+// Task 一行任务。不认识的列原样存在 Extra 里，写回时不会丢失。
+type Task struct {
 	ID       string            `json:"id"`
 	Title    string            `json:"title"`
 	Status   string            `json:"status"`
@@ -77,19 +78,21 @@ func (t *Task) isBlank() bool {
 
 // ---------- 表格 ----------
 
-// tbl md 文件里的一张表，记录它占的行区�?type tbl struct {
+// tbl md 文件里的一张表，记录它占的行区间
+type tbl struct {
 	start, end int
 	Columns    []string
 	fields     []string
 	tasks      []Task
 }
 
-// parse 解析表头和数据行；补齐缺失的标准列、给�?ID 编号，返回文件是否需要重�?func (tb *tbl) parse(lines []string) (dirty bool) {
+// parse 解析表头和数据行；补齐缺失的标准列、给空 ID 编号，返回文件是否需要重写
+func (tb *tbl) parse(lines []string) (dirty bool) {
 	seen := map[string]bool{}
 	for _, c := range splitRow(lines[tb.start]) {
 		c = strings.TrimSpace(c)
 		if c == "" {
-			c = "�? + strconv.Itoa(len(tb.Columns)+1)
+			c = "列" + strconv.Itoa(len(tb.Columns)+1)
 		}
 		if seen[c] {
 			c = c + strconv.Itoa(len(tb.Columns)+1)
@@ -98,7 +101,8 @@ func (t *Task) isBlank() bool {
 		tb.Columns = append(tb.Columns, c)
 		tb.fields = append(tb.fields, canonField(c))
 	}
-	for _, f := range stdColumns { // 缺的标准列补�?		has := false
+	for _, f := range stdColumns { // 缺的标准列补上
+		has := false
 		for _, g := range tb.fields {
 			if g == f {
 				has = true
@@ -129,7 +133,8 @@ func (t *Task) isBlank() bool {
 		tb.tasks = append(tb.tasks, t)
 	}
 
-	// 补编�?	used := map[string]bool{}
+	// 补编号
+	used := map[string]bool{}
 	for _, t := range tb.tasks {
 		if s := strings.TrimSpace(t.ID); s != "" {
 			used[s] = true

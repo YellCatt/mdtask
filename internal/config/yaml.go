@@ -188,7 +188,11 @@ func (n *yamlNode) intVal() (int, bool) {
 	if n == nil {
 		return 0, false
 	}
-	return strconv.Atoi(strings.TrimSpace(n.scalar))
+	v, err := strconv.Atoi(strings.TrimSpace(n.scalar))
+	if err != nil {
+		return 0, false
+	}
+	return v, true
 }
 
 func (n *yamlNode) bool() (bool, bool) {
