@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"mdtask/internal/config"
 	"mdtask/internal/store"
@@ -36,8 +37,17 @@ func main() {
 	ui.InitColor(cfg.Color)
 	st := store.NewStore(abs, cfg.Backup && !noBackup)
 
-	if err := st.Load(); err != nil {
-		fatal(fmt.Errorf("打开 %s 失败: %w", abs, err))
+	known, err := st.CollectKnownIDs()
+	if err != nil {
+		fatal(fmt.Errorf("初始化失败: %w", err))
+	}
+
+	for {
+		time.Sleep(10 * time.Second)
+		known, err = st.TouchAddedDates(known)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "扫描出错:", err)
+		}
 	}
 }
 

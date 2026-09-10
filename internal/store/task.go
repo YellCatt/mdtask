@@ -19,6 +19,8 @@ type Task struct {
 	Priority string            `json:"priority"`
 	Due      string            `json:"due"`
 	Note     string            `json:"note"`
+	Added    string            `json:"added"`
+	DoneAt   string            `json:"done_at"`
 	Extra    map[string]string `json:"extra,omitempty"`
 	Source   string            `json:"-"`
 }
@@ -37,6 +39,10 @@ func (t *Task) Get(col string) string {
 		return t.Due
 	case FNote:
 		return t.Note
+	case FAdded:
+		return t.Added
+	case FDoneAt:
+		return t.DoneAt
 	}
 	return t.Extra[col]
 }
@@ -61,6 +67,12 @@ func (t *Task) Set(col, v string) {
 	case FNote:
 		t.Note = v
 		return
+	case FAdded:
+		t.Added = v
+		return
+	case FDoneAt:
+		t.DoneAt = v
+		return
 	}
 	if t.Extra == nil {
 		t.Extra = map[string]string{}
@@ -69,7 +81,7 @@ func (t *Task) Set(col, v string) {
 }
 
 func (t *Task) isBlank() bool {
-	if strings.TrimSpace(t.ID+t.Title+t.Status+t.Priority+t.Due+t.Note) != "" {
+	if strings.TrimSpace(t.ID+t.Title+t.Status+t.Priority+t.Due+t.Note+t.Added+t.DoneAt) != "" {
 		return false
 	}
 	for _, v := range t.Extra {

@@ -20,9 +20,11 @@ const (
 	FPriority = "优先级"
 	FDue      = "截止日期"
 	FNote     = "备注"
+	FAdded    = "添加日期"
+	FDoneAt   = "完成时间"
 )
 
-var stdColumns = []string{FStatus, FID, FTitle, FPriority, FDue, FNote}
+var stdColumns = []string{FStatus, FID, FTitle, FPriority, FDue, FNote, FAdded}
 
 var fieldAliases = map[string]string{
 	"id": FID, "编号": FID, "序号": FID, "no": FID,
@@ -31,6 +33,8 @@ var fieldAliases = map[string]string{
 	"优先级": FPriority, "priority": FPriority, "pri": FPriority, "级别": FPriority, "重要度": FPriority,
 	"截止日期": FDue, "截止": FDue, "due": FDue, "duedate": FDue, "deadline": FDue, "日期": FDue, "date": FDue,
 	"备注": FNote, "note": FNote, "notes": FNote, "说明": FNote, "描述": FNote, "desc": FNote, "description": FNote,
+	"添加日期": FAdded, "添加": FAdded, "added": FAdded, "created": FAdded, "created_at": FAdded, "创建日期": FAdded,
+	"完成时间": FDoneAt, "完成": FDoneAt, "doneat": FDoneAt, "done_at": FDoneAt, "finished": FDoneAt, "完成日期": FDoneAt,
 }
 
 func norm(s string) string {
@@ -79,6 +83,19 @@ func (s *Store) Init() error {
 	if err := s.Load(); err != nil {
 		return err
 	}
+	for _, f := range s.files {
+		if f.dirty {
+			if err := s.flushFile(f); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Store) Flush() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, f := range s.files {
 		if f.dirty {
 			if err := s.flushFile(f); err != nil {
@@ -255,6 +272,7 @@ func (s *Store) Update(fn func(st *Store) error) error {
 
 func (s *Store) Archive(pred func(Task) bool) int {
 	total := 0
+	today := Today().Format("2006-01-02")
 	for _, f := range s.files {
 		if f.main == nil {
 			continue
@@ -263,6 +281,9 @@ func (s *Store) Archive(pred func(Task) bool) int {
 		var hit []Task
 		for _, t := range f.main.tasks {
 			if pred(t) {
+				if t.DoneAt == "" {
+					t.DoneAt = today
+				}
 				hit = append(hit, t)
 			} else {
 				rest = append(rest, t)
@@ -334,11 +355,33 @@ func (s *Store) RemoveTask(id string) error {
 
 func (s *Store) ensureArchiveIn(f *fileState) {
 	if f.arch != nil {
+		hasDoneAt := false
+		for _, c := range f.arch.Columns {
+			if canonField(c) == FDoneAt {
+				hasDoneAt = true
+				break
+			}
+		}
+		if !hasDoneAt {
+			f.arch.Columns = append(f.arch.Columns, FDoneAt)
+			f.arch.fields = append(f.arch.fields, FDoneAt)
+			f.dirty = true
+		}
 		return
 	}
 	cols := append([]string(nil), f.main.Columns...)
 	if len(cols) == 0 {
 		cols = append([]string(nil), stdColumns...)
+	}
+	hasDoneAt := false
+	for _, c := range cols {
+		if canonField(c) == FDoneAt {
+			hasDoneAt = true
+			break
+		}
+	}
+	if !hasDoneAt {
+		cols = append(cols, FDoneAt)
 	}
 	if strings.TrimSpace(f.lines[len(f.lines)-1]) != "" {
 		f.lines = append(f.lines, "")
@@ -372,6 +415,82 @@ func (s *Store) NextID() string {
 		}
 	}
 	return strconv.Itoa(max + 1)
+}
+
+func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.Load(); err != nil {
+		return known, err
+	}
+	today := Today().Format("2006-01-02")
+	for _, f := range s.files {
+		if f.main != nil {
+			for i := range f.main.tasks {
+				t := &f.main.tasks[i]
+				if t.ID != "" {
+					if !known[t.ID] && t.Added == "" {
+						t.Added = today
+						f.dirty = true
+					}
+					known[t.ID] = true
+				}
+			}
+		}
+		if f.arch != nil {
+			for i := range f.arch.tasks {
+				t := &f.arch.tasks[i]
+				if t.ID != "" {
+					if !known[t.ID] && t.Added == "" {
+						t.Added = today
+						f.dirty = true
+					}
+					known[t.ID] = true
+				}
+			}
+		}
+	}
+	for _, f := range s.files {
+		if f.dirty {
+			if err := s.flushFile(f); err != nil {
+				return known, err
+			}
+		}
+	}
+	return known, nil
+}
+
+func (s *Store) CollectKnownIDs() (map[string]bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.Load(); err != nil {
+		return nil, err
+	}
+	known := map[string]bool{}
+	for _, f := range s.files {
+		if f.main != nil {
+			for _, t := range f.main.tasks {
+				if t.ID != "" {
+					known[t.ID] = true
+				}
+			}
+		}
+		if f.arch != nil {
+			for _, t := range f.arch.tasks {
+				if t.ID != "" {
+					known[t.ID] = true
+				}
+			}
+		}
+	}
+	for _, f := range s.files {
+		if f.dirty {
+			if err := s.flushFile(f); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return known, nil
 }
 
 func (s *Store) flushFile(f *fileState) error {
