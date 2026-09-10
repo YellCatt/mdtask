@@ -1,12 +1,15 @@
 package store
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"time"
 
 	"mdtask/internal/status"
 )
+
+var ErrNoDate = errors.New("no date")
 
 // Task 一行任务。不认识的列原样存在 Extra 里，写回时不会丢失。
 type Task struct {
@@ -204,7 +207,7 @@ func Today() time.Time {
 func ParseDate(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return time.Time{}, time.ErrNoDate
+		return time.Time{}, ErrNoDate
 	}
 	layouts := []string{"2006-01-02", "2006/01/02", "2006.01.02", "01-02", "01/02"}
 	for _, l := range layouts {
@@ -215,5 +218,5 @@ func ParseDate(s string) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, time.ErrNoDate
+	return time.Time{}, ErrNoDate
 }
