@@ -1,0 +1,40 @@
+# MDTask 配置
+# 放在 mdtask 同目录，或运行时用 -config 指定。命令行参数优先级高于这里。
+
+# 任务 md 文件（相对路径按当前目录解析）
+file: tasks.md
+
+# 每次写入前把旧文件备份到 .mdtask-backup/（保留最近 10 份）
+backup: true
+
+# 颜色: auto（跟随终端）/ always / never
+color: auto
+
+# 四种状态用的图标，改这里就能换整套图标
+status:
+  done: "✅"
+  doing: "⏸️"
+  hold: "❌"
+  cancel: "🔴"
+
+archive:
+  # 归档章节的标题，程序按这个标题找第二个表格
+  heading: 归档
+  # 自动归档: -1 关闭 / 0 一标记结束就归档 / 7 截止日期 7 天前才归档
+  auto: -1
+  # mdtask archive 时是否连「停滞」一起搬走
+  include_stuck: false
+
+report:
+  # 每天出日报的时间点
+  times:
+    - "21:00"
+    - "05:00"
+  # daemon 扫描 md 变化的间隔（秒）
+  interval: 60
+  # 生成日报后用默认程序打开
+  open: false
+  # 弹系统通知（Windows 气泡 / Linux notify-send / macOS）
+  notify: true
+  # 日报存放目录（相对 md 文件所在目录）
+  dir: .mdtask-daily

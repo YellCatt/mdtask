@@ -21,7 +21,8 @@ const usage = `MDTask — 用 Markdown 表格管理任务
   mdtask [选项] [命令] [参数]
 
 选项（要写在命令之前）:
-  -file <路径>     任务 md 文件，默认 ./tasks.md（也可用环境变量 MDTASK_FILE）
+  -file <路径>     任务 md 文件，默认取 config.yaml 里的 file
+  -config <路径>   配置文件，默认依次找 ./config.yaml、./config.yml
   -no-backup       关闭写前自动备份
 
 状态（md 的状态列里就写这些 emoji，写中文/英文也能识别）:
@@ -55,6 +56,15 @@ const usage = `MDTask — 用 Markdown 表格管理任务
                            设 MDTASK_AUTO_ARCHIVE=0 后，每次改状态都会自动归档
                            结束态任务；=7 表示只归档截止日期在 7 天前的
   rm <id...>               删除任务
+  daemon                   常驻后台，到点生成日报并弹通知
+      -at 21:00,05:00      日报时间（默认 21:00 与 05:00）
+      -interval 60         扫描 md 变化的间隔（秒）
+      -open                生成后顺便打开日报文件
+      -once                立刻出一份日报并退出（调试用）
+  install                  把 daemon 装进开机启动项
+  uninstall                移除开机启动项
+  init                     在当前目录生成一份带注释的默认 config.yaml
+      -force               已存在时覆盖
   path                     打印 md 文件的绝对路径
   open                     用系统默认程序打开 md 文件
   help                     显示本帮助
@@ -83,6 +93,14 @@ const (
 var useColor bool
 
 func initColor() {
+	switch cfg.Color {
+	case "always":
+		useColor = true
+		return
+	case "never":
+		useColor = false
+		return
+	}
 	if os.Getenv("NO_COLOR") != "" {
 		return
 	}
@@ -170,12 +188,14 @@ func truncate(s string, max int) string {
 var st *Store
 
 func main() {
-	file, noBackup, rest := splitArgs(os.Args[1:])
+	file, config, noBackup, rest := splitArgs(os.Args[1:])
+	loadConfig(config)
+
 	if file == "" {
 		file = os.Getenv("MDTASK_FILE")
 	}
 	if file == "" {
-		file = "tasks.md"
+		file = cfg.File
 	}
 	abs, err := filepath.Abs(file)
 	if err != nil {
@@ -186,7 +206,14 @@ func main() {
 	}
 
 	initColor()
-	st = NewStore(abs, !noBackup)
+	st = NewStore(abs, cfg.Backup && !noBackup)
+	if h := os.Getenv("MDTASK_ARCHIVE_HEADING"); h != "" {
+		st.archTitle = h
+	} else {
+		st.archTitle = cfg.Archive.Heading
+	}
+	initAutoArchive()
+
 	if err := st.Init(); err != nil {
 		fatal(fmt.Errorf("打开 %s 失败: %w", abs, err))
 	}
@@ -222,6 +249,14 @@ func main() {
 		cmdArchive(args)
 	case "rm", "del", "remove":
 		cmdRemove(args)
+	case "daemon", "d":
+		cmdDaemon(args)
+	case "install":
+		cmdInstall(args)
+	case "uninstall":
+		cmdUninstall(args)
+	case "init":
+		cmdInit(args)
 	case "path":
 		fmt.Println(st.path)
 	case "open":
@@ -239,7 +274,7 @@ func fatal(v any) {
 	os.Exit(1)
 }
 
-func splitArgs(args []string) (file string, noBackup bool, rest []string) {
+func splitArgs(args []string) (file, config string, noBackup bool, rest []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -254,6 +289,17 @@ func splitArgs(args []string) (file string, noBackup bool, rest []string) {
 			file = strings.TrimPrefix(a, "--file=")
 		case strings.HasPrefix(a, "-f="):
 			file = strings.TrimPrefix(a, "-f=")
+		case a == "-config" || a == "--config" || a == "-c":
+			if i+1 < len(args) {
+				config = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(a, "-config="):
+			config = strings.TrimPrefix(a, "-config=")
+		case strings.HasPrefix(a, "--config="):
+			config = strings.TrimPrefix(a, "--config=")
+		case strings.HasPrefix(a, "-c="):
+			config = strings.TrimPrefix(a, "-c=")
 		case a == "-no-backup" || a == "--no-backup":
 			noBackup = true
 		default:
@@ -467,7 +513,9 @@ func cmdSetStatus(key string, args []string) {
 // autoArchiveDays <0 表示关闭；0 = 结束态立刻归档；>0 = 截止日期在 N 天前才归档
 var autoArchiveDays = -1
 
-func init() {
+// initAutoArchive 配置里的 archive.auto 为准，环境变量可以临时覆盖
+func initAutoArchive() {
+	autoArchiveDays = cfg.Archive.Auto
 	v := strings.TrimSpace(os.Getenv("MDTASK_AUTO_ARCHIVE"))
 	if v == "" {
 		return
@@ -523,7 +571,7 @@ func cmdArchive(args []string) {
 	fs := flag.NewFlagSet("archive", flag.ExitOnError)
 	before := fs.String("before", "", "只归档截止日期早于该日期的（YYYY-MM-DD）")
 	days := fs.Int("days", 0, "只归档截止日期在 N 天之前的")
-	all := fs.Bool("all", false, "连 ❌ 停滞 也一起归档")
+	all := fs.Bool("all", cfg.Archive.IncludeStuck, "连 ❌ 停滞 也一起归档")
 	fs.Parse(args)
 
 	var cutoff time.Time
