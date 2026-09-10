@@ -2,11 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,7 +41,6 @@ type daemon struct {
 	interval time.Duration
 	openFile bool
 	state    *daemonState
-	stateDir string
 }
 
 func cmdDaemon(args []string) {
@@ -160,6 +158,7 @@ func (d *daemon) saveState() {
 
 // ---------- 扫描变化 ----------
 
+// poll 对比上次快照，把新增 / 完成 / 取消 / 删除记成事件
 func (d *daemon) poll() {
 	tasks, _, err := st.List()
 	if err != nil {
@@ -230,6 +229,7 @@ func closedKind(s string) string {
 
 // ---------- 触发判断 ----------
 
+// due 返回该出日报的时间点；错过超过 2 小时就不补报
 func (d *daemon) due(now time.Time) (time.Time, bool) {
 	for _, c := range d.times {
 		fire := time.Date(now.Year(), now.Month(), now.Day(), c.h, c.m, 0, 0, now.Location())
@@ -240,291 +240,10 @@ func (d *daemon) due(now time.Time) (time.Time, bool) {
 		if d.state.LastFire == key {
 			continue
 		}
-		if now.Sub(fire) > 2*time.Hour { // 错过了太久就不补报
+		if now.Sub(fire) > 2*time.Hour {
 			continue
 		}
 		return fire, true
 	}
 	return time.Time{}, false
-}
-
-// ---------- 生成日报 ----------
-
-func (d *daemon) report(fire time.Time, notifyIt bool) {
-	from := d.state.LastReport
-	if from.IsZero() {
-		from = fire.Add(-12 * time.Hour)
-	}
-	var done, cancel, fresh, removed []daemonEvent
-	for _, e := range d.state.Events {
-		if e.At.Before(from) || e.At.After(fire) {
-			continue
-		}
-		switch e.Kind {
-		case evDone:
-			done = append(done, e)
-		case evCancel:
-			cancel = append(cancel, e)
-		case evNew:
-			fresh = append(fresh, e)
-		case evRemoved:
-			removed = append(removed, e)
-		}
-	}
-
-	tasks, _, err := st.List()
-	if err != nil {
-		tasks = nil
-	}
-	var doing, hold, todo, overdue []Task
-	today := time.Now().Truncate(24 * time.Hour)
-	for _, t := range tasks {
-		switch {
-		case statusDefOf(t.Status) != nil && statusDefOf(t.Status).Key == stDoing:
-			doing = append(doing, t)
-		case statusDefOf(t.Status) != nil && statusDefOf(t.Status).Key == stHold:
-			hold = append(hold, t)
-		case strings.TrimSpace(t.Status) == "":
-			todo = append(todo, t)
-		}
-		if !isClosedStatus(t.Status) {
-			if due, err := time.Parse("2006-01-02", strings.TrimSpace(t.Due)); err == nil && due.Before(today) {
-				overdue = append(overdue, t)
-			}
-		}
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "# %s 日报\n\n", fire.Format("2006-01-02 15:04"))
-	fmt.Fprintf(&b, "> 统计区间 %s → %s\n\n", from.Format("01-02 15:04"), fire.Format("01-02 15:04"))
-
-	fmt.Fprintf(&b, "## ✅ 新完成（%d）\n\n", len(done))
-	writeEvents(&b, done, "这段时间没有完成的任务")
-	fmt.Fprintf(&b, "\n## 🆕 新增（%d）\n\n", len(fresh))
-	writeEvents(&b, fresh, "这段时间没有新增任务")
-	if len(cancel) > 0 || len(removed) > 0 {
-		fmt.Fprintf(&b, "\n## 🔴 新取消 / 删除（%d）\n\n", len(cancel)+len(removed))
-		writeEvents(&b, cancel, "")
-		writeEvents(&b, removed, "")
-	}
-
-	fmt.Fprintf(&b, "\n## 当前状态\n\n")
-	fmt.Fprintf(&b, "- ⏸️ 进行中 %d 项\n", len(doing))
-	for _, t := range doing {
-		fmt.Fprintf(&b, "  - #%s %s%s\n", t.ID, t.Title, dueSuffix(t))
-	}
-	fmt.Fprintf(&b, "- ❌ 停滞 %d 项\n", len(hold))
-	for _, t := range hold {
-		fmt.Fprintf(&b, "  - #%s %s%s\n", t.ID, t.Title, dueSuffix(t))
-	}
-	fmt.Fprintf(&b, "- ⬜ 待办 %d 项\n", len(todo))
-	for _, t := range todo {
-		fmt.Fprintf(&b, "  - #%s %s%s\n", t.ID, t.Title, dueSuffix(t))
-	}
-	if len(overdue) > 0 {
-		fmt.Fprintf(&b, "\n## ⚠️ 已逾期（%d）\n\n", len(overdue))
-		for _, t := range overdue {
-			fmt.Fprintf(&b, "- #%s %s（截止 %s）\n", t.ID, t.Title, strings.TrimSpace(t.Due))
-		}
-	}
-
-	dir := d.dailyDir()
-	os.MkdirAll(dir, 0o755)
-	path := filepath.Join(dir, fire.Format("2006-01-02")+".md")
-
-	old := ""
-	if b0, err := os.ReadFile(path); err == nil {
-		old = string(b0)
-	}
-	content := b.String()
-	if old != "" {
-		content = old + "\n---\n\n" + content
-	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		logf("写日报失败: %v", err)
-		return
-	}
-
-	summary := fmt.Sprintf("✅完成 %d · 🆕新增 %d · ⏸️进行中 %d · ❌停滞 %d · ⚠️逾期 %d",
-		len(done), len(fresh), len(doing), len(hold), len(overdue))
-
-	d.state.LastReport = fire
-	d.state.LastFire = fire.Format("2006-01-02T15:04")
-	d.saveState()
-
-	logf("日报已生成: %s", path)
-	logf(summary)
-	if notifyIt {
-		notify("MDTask "+fire.Format("15:04")+" 日报", summary+"\n"+path)
-	}
-	if d.openFile {
-		openFile(path)
-	}
-}
-
-func writeEvents(b *strings.Builder, es []daemonEvent, empty string) {
-	if len(es) == 0 {
-		if empty != "" {
-			fmt.Fprintf(b, "%s\n", empty)
-		}
-		return
-	}
-	for _, e := range es {
-		fmt.Fprintf(b, "- #%s %s  `%s`\n", e.ID, e.Title, e.At.Format("01-02 15:04"))
-	}
-}
-
-func dueSuffix(t Task) string {
-	d := strings.TrimSpace(t.Due)
-	if d == "" {
-		return ""
-	}
-	return "（截止 " + d + "）"
-}
-
-// ---------- 系统通知 ----------
-
-func notify(title, text string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		script := fmt.Sprintf(
-			"Add-Type -AssemblyName System.Windows.Forms\n"+
-				"$n=New-Object System.Windows.Forms.NotifyIcon\n"+
-				"$n.Icon=[System.Drawing.SystemIcons]::Information\n"+
-				"$n.BalloonTipTitle='%s'\n"+
-				"$n.BalloonTipText='%s'\n"+
-				"$n.Visible=$true\n"+
-				"$n.ShowBalloonTip(20000)\n"+
-				"Start-Sleep -Seconds 6\n"+
-				"$n.Dispose()\n",
-			psQuote(title), psQuote(text))
-		cmd = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-STA", "-Command", script)
-	case "darwin":
-		cmd = exec.Command("osascript", "-e",
-			fmt.Sprintf("display notification %q with title %q", text, title))
-	default:
-		cmd = exec.Command("notify-send", "-a", "MDTask", "-t", "20000", title, text)
-	}
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
-		logf("系统通知发送失败（不影响日报文件）: %v", err)
-	}
-}
-
-// psQuote 转义后放进 PowerShell 单引号字符串
-func psQuote(s string) string {
-	s = strings.ReplaceAll(s, "'", "''")
-	s = strings.ReplaceAll(s, "\n", "`n")
-	s = strings.ReplaceAll(s, "\r", "")
-	return s
-}
-
-// ---------- 开机自启 ----------
-
-func cmdInstall(args []string) {
-	fs := flag.NewFlagSet("install", flag.ExitOnError)
-	fs.Parse(args)
-	exe, err := os.Executable()
-	if err != nil {
-		fatal(err)
-	}
-	exe, _ = filepath.Abs(exe)
-	data, _ := filepath.Abs(st.path)
-
-	// 启动参数里带上配置文件，避免开机启动时工作目录不同导致找不到
-	runArgs := fmt.Sprintf(`-file "%s"`, data)
-	if cfgPathUsed != "" {
-		runArgs += fmt.Sprintf(` -config "%s"`, cfgPathUsed)
-	}
-
-	switch runtime.GOOS {
-	case "windows":
-		dir, err := os.UserConfigDir() // %APPDATA%
-		if err != nil {
-			fatal(err)
-		}
-		startup := filepath.Join(dir, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
-		if err := os.MkdirAll(startup, 0o755); err != nil {
-			fatal(err)
-		}
-		vbs := filepath.Join(startup, "mdtask.vbs")
-		content := fmt.Sprintf(
-			"Set ws = CreateObject(\"WScript.Shell\")\n"+
-				"ws.CurrentDirectory = \"%s\"\n"+
-				"ws.Run \"\"\"%s\"\" %s daemon\", 0, False\n",
-			filepath.Dir(exe), exe, runArgs)
-		if err := os.WriteFile(vbs, []byte(content), 0o644); err != nil {
-			fatal(err)
-		}
-		fmt.Printf("已安装开机启动: %s\n", vbs)
-		fmt.Println("注销再登录或重启后生效；现在也可以直接双击它启动。")
-
-	case "linux", "darwin":
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fatal(err)
-		}
-		dir := filepath.Join(home, ".config", "systemd", "user")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			fatal(err)
-		}
-		unit := fmt.Sprintf(`[Unit]
-Description=MDTask daemon
-After=default.target
-
-[Service]
-Type=simple
-WorkingDirectory=%s
-ExecStart=%s %s daemon
-Restart=always
-RestartSec=30
-
-[Install]
-WantedBy=default.target
-`, filepath.Dir(data), exe, runArgs)
-		path := filepath.Join(dir, "mdtask.service")
-		if err := os.WriteFile(path, []byte(unit), 0o644); err != nil {
-			fatal(err)
-		}
-		fmt.Printf("已写入 %s\n", path)
-		if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err == nil {
-			if err := exec.Command("systemctl", "--user", "enable", "--now", "mdtask").Run(); err == nil {
-				fmt.Println("已设置开机启动并立即运行：systemctl --user status mdtask 可查看状态")
-				return
-			}
-		}
-		fmt.Println("请手动执行：systemctl --user daemon-reload && systemctl --user enable --now mdtask")
-
-	default:
-		fatal("暂不支持自动安装，请手动把 `mdtask daemon` 加到开机启动项")
-	}
-}
-
-func cmdUninstall(args []string) {
-	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-	fs.Parse(args)
-	switch runtime.GOOS {
-	case "windows":
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			fatal(err)
-		}
-		p := filepath.Join(dir, "Microsoft", "Windows", "Start Menu", "Programs", "Startup", "mdtask.vbs")
-		if err := os.Remove(p); err != nil {
-			fatal(err)
-		}
-		fmt.Println("已移除开机启动:", p)
-	case "linux", "darwin":
-		exec.Command("systemctl", "--user", "disable", "--now", "mdtask").Run()
-		home, _ := os.UserHomeDir()
-		p := filepath.Join(home, ".config", "systemd", "user", "mdtask.service")
-		if err := os.Remove(p); err != nil {
-			fatal(err)
-		}
-		fmt.Println("已移除:", p)
-	default:
-		fatal("暂不支持")
-	}
 }
