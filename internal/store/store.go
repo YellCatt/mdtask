@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"mdtask/internal/logger"
 )
 
 var ErrNotFound = errors.New("任务不存在")
@@ -110,9 +112,12 @@ func (s *Store) Load() error {
 	s.files = nil
 	s.primary = nil
 
+	logger.Debug("Store.Load 开始扫描", "dir", s.Dir)
+
 	ents, err := os.ReadDir(s.Dir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			logger.Info("任务目录不存在，自动创建", "dir", s.Dir)
 			if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 				return err
 			}
@@ -132,6 +137,7 @@ func (s *Store) Load() error {
 		}
 	}
 	sort.Strings(mdFiles)
+	logger.Debug("发现 md 文件", "count", len(mdFiles), "files", mdFiles)
 
 	if len(mdFiles) == 0 {
 		primaryPath := filepath.Join(s.Dir, "tasks.md")
@@ -141,6 +147,7 @@ func (s *Store) Load() error {
 		}
 		s.files = append(s.files, f)
 		s.primary = f
+		logger.Info("没有 md 文件，自动创建 tasks.md", "path", primaryPath)
 		return nil
 	}
 
@@ -153,6 +160,7 @@ func (s *Store) Load() error {
 		s.files = append(s.files, f)
 	}
 	s.primary = s.files[0]
+	logger.Debug("Store.Load 完成", "files", len(s.files))
 	return nil
 }
 
@@ -163,6 +171,7 @@ func (s *Store) loadFile(path string) (*fileState, error) {
 		if !os.IsNotExist(err) {
 			return nil, err
 		}
+		logger.Info("文件不存在，使用默认模板", "path", path)
 		b = []byte(defaultDoc())
 		f.dirty = true
 	}
@@ -172,6 +181,7 @@ func (s *Store) loadFile(path string) (*fileState, error) {
 
 	a, b2 := locateTableFrom(f.lines, 0)
 	if a < 0 {
+		logger.Info("主表未找到，自动创建表头", "file", f.Name)
 		s.createMainTableIn(f)
 		a, b2 = locateTableFrom(f.lines, 0)
 	}
@@ -182,6 +192,7 @@ func (s *Store) loadFile(path string) (*fileState, error) {
 	for i := range f.main.tasks {
 		f.main.tasks[i].Source = path
 	}
+	logger.Debug("加载主表完成", "file", f.Name, "tasks", len(f.main.tasks))
 
 	if hi := findHeadingFrom(f.lines, s.ArchTitle, f.main.end); hi >= 0 {
 		if x, y := locateTableFrom(f.lines, hi+1); x >= 0 {
@@ -192,7 +203,12 @@ func (s *Store) loadFile(path string) (*fileState, error) {
 			for i := range f.arch.tasks {
 				f.arch.tasks[i].Source = path
 			}
+			logger.Debug("加载归档表完成", "file", f.Name, "archived_tasks", len(f.arch.tasks))
+		} else {
+			logger.Debug("找到归档标题但未找到表格", "file", f.Name, "heading_pos", hi)
 		}
+	} else {
+		logger.Debug("未找到归档章节", "file", f.Name)
 	}
 	return f, nil
 }
@@ -297,6 +313,10 @@ func (s *Store) Archive(pred func(Task) bool) int {
 		f.main.tasks = rest
 		f.dirty = true
 		total += len(hit)
+		logger.Info("Archive: 归档任务", "file", f.Name, "count", len(hit), "doneAt", today)
+		for _, t := range hit {
+			logger.Debug("归档项", "id", t.ID, "title", t.Title)
+		}
 	}
 	return total
 }
@@ -424,6 +444,7 @@ func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) 
 		return known, err
 	}
 	today := Today().Format("2006-01-02")
+	newCount := 0
 	for _, f := range s.files {
 		if f.main != nil {
 			for i := range f.main.tasks {
@@ -432,6 +453,8 @@ func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) 
 					if !known[t.ID] && t.Added == "" {
 						t.Added = today
 						f.dirty = true
+						newCount++
+						logger.Debug("TouchAddedDates 补填添加日期", "task_id", t.ID, "title", t.Title, "added", today)
 					}
 					known[t.ID] = true
 				}
@@ -444,6 +467,7 @@ func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) 
 					if !known[t.ID] && t.Added == "" {
 						t.Added = today
 						f.dirty = true
+						newCount++
 					}
 					known[t.ID] = true
 				}
@@ -456,6 +480,11 @@ func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) 
 				return known, err
 			}
 		}
+	}
+	if newCount > 0 {
+		logger.Info("TouchAddedDates 本轮扫描", "补填了", newCount, "个新任务")
+	} else {
+		logger.Debug("TouchAddedDates 本轮扫描: 无新任务")
 	}
 	return known, nil
 }
@@ -524,7 +553,12 @@ func (s *Store) flushFile(f *fileState) error {
 		backupFile(f.Path)
 	}
 	f.dirty = false
-	return atomicWrite(f.Path, []byte(strings.Join(out, nlSep)))
+	logger.Debug("flushFile 原子写入", "path", f.Path, "lines", len(out))
+	if err := atomicWrite(f.Path, []byte(strings.Join(out, nlSep))); err != nil {
+		logger.Error("flushFile 写入失败", "path", f.Path, "err", err)
+		return err
+	}
+	return nil
 }
 
 func atomicWrite(path string, data []byte) error {

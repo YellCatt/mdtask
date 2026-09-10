@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"mdtask/internal/config"
+	"mdtask/internal/logger"
 	"mdtask/internal/mail"
 	"mdtask/internal/report"
 	"mdtask/internal/store"
@@ -37,23 +38,47 @@ func main() {
 		fatal(err)
 	}
 
+	if err := logger.Init(abs); err != nil {
+		fmt.Fprintf(os.Stderr, "警告: 日志初始化失败: %v\n", err)
+	}
+
+	logger.Info("MDTask 启动",
+		"dir", abs,
+		"config_path", configPath,
+		"backup", !noBackup && cfg.Backup,
+	)
+	logger.Debug("当前配置摘要",
+		"report_times", cfg.Report.Times,
+		"report_interval", cfg.Report.Interval,
+		"weekly", cfg.Report.Weekly,
+		"monthly", cfg.Report.Monthly,
+		"yearly", cfg.Report.Yearly,
+		"mail_host", cfg.Mail.SMTPHost,
+		"mail_port", cfg.Mail.SMTPPort,
+		"mail_from", cfg.Mail.FromEmail,
+	)
+
 	ui.InitColor(cfg.Color)
 	st := store.NewStore(abs, cfg.Backup && !noBackup)
 
 	known, err := st.CollectKnownIDs()
 	if err != nil {
+		logger.Error("初始化 CollectKnownIDs 失败", "err", err)
 		fatal(fmt.Errorf("初始化失败: %w", err))
 	}
+	logger.Info("初始化完成", "known_tasks", len(known))
 
 	dumpAllReports(st, abs)
 
+	logger.Info("启动邮件调度 goroutine")
 	go runMailer(st, cfg)
 
+	logger.Info("进入主循环: 每 10s 扫描 tasks 目录")
 	for {
 		time.Sleep(10 * time.Second)
 		known, err = st.TouchAddedDates(known)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "扫描出错:", err)
+			logger.Error("TouchAddedDates 扫描出错", "err", err)
 		}
 	}
 }
@@ -66,11 +91,16 @@ type sentTracker struct {
 }
 
 func dumpAllReports(st *store.Store, baseDir string) {
+	logger.Info("dumpAllReports: 启动时生成四份报告")
 	today := store.Today()
 	root := filepath.Join(baseDir, "reports")
 
 	archived, _ := st.ListArchive()
 	open, _, _ := st.List()
+	logger.Debug("dumpAllReports 读取数据完成",
+		"open", len(open),
+		"archived", len(archived),
+	)
 
 	type entry struct {
 		dir      string
@@ -97,19 +127,19 @@ func dumpAllReports(st *store.Store, baseDir string) {
 	for _, r := range results {
 		fullDir := filepath.Join(root, r.dir)
 		if err := os.MkdirAll(fullDir, 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "创建报告目录 %s 失败: %v\n", fullDir, err)
+			logger.Error("创建报告目录失败", "dir", fullDir, "err", err)
 			continue
 		}
 		fullPath := filepath.Join(fullDir, r.filename)
 		if r.err != nil {
-			fmt.Fprintf(os.Stderr, "生成 %s 报告失败: %v\n", r.dir, r.err)
+			logger.Error("生成报告失败", "freq", r.dir, "err", r.err)
 			continue
 		}
 		content := r.subject + "\n\n" + r.body
 		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "写入报告 %s 失败: %v\n", fullPath, err)
+			logger.Error("写入报告文件失败", "path", fullPath, "err", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "报告已生成: %s\n", fullPath)
+			logger.Info("报告已生成", "path", fullPath)
 		}
 	}
 }
@@ -204,6 +234,12 @@ func initSentTracker(cfg *config.Config, t time.Time) *sentTracker {
 			}
 		}
 	}
+	logger.Debug("initSentTracker 初始化完成",
+		"dailyKey", st.dailyKey,
+		"weeklyKey", st.weeklyKey,
+		"monthlyKey", st.monthlyKey,
+		"yearlyKey", st.yearlyKey,
+	)
 	return st
 }
 
@@ -239,16 +275,27 @@ func runMailer(st *store.Store, cfg *config.Config) {
 	for {
 		now := time.Now()
 		next := nextReportTime(cfg, now)
-		time.Sleep(next.Sub(now))
+		wait := next.Sub(now)
+		logger.Info("runMailer: 计算下次发送时间",
+			"next", next.Format(time.RFC3339),
+			"wait_seconds", int(wait.Seconds()),
+		)
+		time.Sleep(wait)
 
 		now = time.Now()
+		logger.Info("runMailer: 到达触发时间，开始发送报告", "now", now.Format(time.RFC3339))
 		sendAllReports(st, cfg, tracker, now)
 	}
 }
 
 func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, now time.Time) {
+	logger.Debug("sendAllReports 开始", "now", now.Format(time.RFC3339))
 	archived, _ := st.ListArchive()
 	open, _, _ := st.List()
+	logger.Debug("sendAllReports 读取数据完成",
+		"open", len(open),
+		"archived", len(archived),
+	)
 
 	tasks := []struct {
 		freq   string
@@ -258,7 +305,11 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 	}{
 		{
 			"daily",
-			func(k string) bool { return k != tracker.dailyKey },
+			func(k string) bool {
+				triggered := k != tracker.dailyKey
+				logger.Debug("daily 检查", "currKey", k, "tracker", tracker.dailyKey, "triggered", triggered)
+				return triggered
+			},
 			func() (string, string, error) { return report.BuildDaily(archived, open) },
 			func(k string) { tracker.dailyKey = k },
 		},
@@ -266,6 +317,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 			"weekly",
 			func(k string) bool {
 				if cfg.Report.Weekly == 0 {
+					logger.Debug("weekly 关闭 (cfg.Report.Weekly=0)")
 					return false
 				}
 				wd := int(now.Weekday())
@@ -273,9 +325,12 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 					wd = 7
 				}
 				if wd != cfg.Report.Weekly {
+					logger.Debug("weekly 跳过，不是指定星期几", "today_wd", wd, "target", cfg.Report.Weekly)
 					return false
 				}
-				return k != tracker.weeklyKey
+				triggered := k != tracker.weeklyKey
+				logger.Debug("weekly 检查", "currKey", k, "tracker", tracker.weeklyKey, "triggered", triggered)
+				return triggered
 			},
 			func() (string, string, error) { return report.BuildWeekly(archived, open) },
 			func(k string) { tracker.weeklyKey = k },
@@ -284,12 +339,16 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 			"monthly",
 			func(k string) bool {
 				if cfg.Report.Monthly == 0 {
+					logger.Debug("monthly 关闭 (cfg.Report.Monthly=0)")
 					return false
 				}
 				if now.Day() != cfg.Report.Monthly {
+					logger.Debug("monthly 跳过，不是指定日期", "today_day", now.Day(), "target", cfg.Report.Monthly)
 					return false
 				}
-				return k != tracker.monthlyKey
+				triggered := k != tracker.monthlyKey
+				logger.Debug("monthly 检查", "currKey", k, "tracker", tracker.monthlyKey, "triggered", triggered)
+				return triggered
 			},
 			func() (string, string, error) { return report.BuildMonthly(archived, open) },
 			func(k string) { tracker.monthlyKey = k },
@@ -298,18 +357,23 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 			"yearly",
 			func(k string) bool {
 				if cfg.Report.Yearly == "" {
+					logger.Debug("yearly 关闭 (cfg.Report.Yearly 为空)")
 					return false
 				}
 				parts := strings.SplitN(cfg.Report.Yearly, "-", 2)
 				if len(parts) != 2 {
+					logger.Debug("yearly 跳过，cfg 格式错误", "yearly", cfg.Report.Yearly)
 					return false
 				}
 				mt, _ := time.Parse("01", parts[0])
 				d, _ := time.Parse("02", parts[1])
 				if int(now.Month()) != int(mt.Month()) || now.Day() != d.Day() {
+					logger.Debug("yearly 跳过，不是指定日期", "today", now.Format("01-02"), "target", cfg.Report.Yearly)
 					return false
 				}
-				return k != tracker.yearlyKey
+				triggered := k != tracker.yearlyKey
+				logger.Debug("yearly 检查", "currKey", k, "tracker", tracker.yearlyKey, "triggered", triggered)
+				return triggered
 			},
 			func() (string, string, error) { return report.BuildYearly(archived, open) },
 			func(k string) { tracker.yearlyKey = k },
@@ -325,19 +389,21 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 		}
 		subject, body, err := t.build()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s [%s] 生成失败: %v\n", time.Now().Format(time.RFC3339), t.freq, err)
+			logger.Error("报告生成失败", "freq", t.freq, "err", err)
 			continue
 		}
+		logger.Debug("报告生成成功", "freq", t.freq, "subject", subject)
 		if err := mail.Send(cfg, subject, body); err != nil {
-			fmt.Fprintf(os.Stderr, "%s [%s] 发送失败: %v\n", time.Now().Format(time.RFC3339), t.freq, err)
+			logger.Error("邮件发送失败", "freq", t.freq, "err", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "%s [%s] 已发送\n", time.Now().Format(time.RFC3339), t.freq)
+			logger.Info("报告邮件已发送", "freq", t.freq, "subject", subject)
 			t.mark(currKey)
 		}
 	}
 }
 
 func fatal(v any) {
+	logger.Error("fatal 退出", "err", v)
 	fmt.Fprintln(os.Stderr, "错误:", v)
 	os.Exit(1)
 }
