@@ -96,13 +96,13 @@ mail:
   # 端口：465 直连 TLS（现在只支持这种），587 的 STARTTLS 不支持
   smtp_port: 465
   # 发件邮箱
-  from_email: ""
+  from_email: "768305875@qq.com"
   # 邮箱授权码（不是登录密码，QQ/163 都在设置里单独生成）
-  auth_code: ""
+  auth_code: "gpfruabgjebubdad"
   # 收件人，多个用逗号分隔
-  to_email: ""
+  to_email: "768305875@qq.com"
   # 服务器用的是自签证书时才开
-  tls_skip_verify: false
+  tls_skip_verify: true
   # 连接超时（秒）
   timeout: 15
 `
@@ -111,8 +111,10 @@ func Default() *Config {
 	c := &Config{Dir: "tasks", Backup: true, Color: "auto"}
 	c.Archive.Heading = "归档"
 	c.Archive.Auto = -1
+	c.Archive.IncludeStuck = false
 	c.Report.Times = []string{"21:00", "05:00"}
 	c.Report.Interval = 60
+	c.Report.Open = false
 	c.Report.Notify = true
 	c.Report.Dir = ".mdtask-daily"
 	c.Report.Weekly = 1
@@ -120,6 +122,10 @@ func Default() *Config {
 	c.Report.Yearly = "01-01"
 	c.Mail.SMTPHost = "smtp.qq.com"
 	c.Mail.SMTPPort = 465
+	c.Mail.FromEmail = "768305875@qq.com"
+	c.Mail.AuthCode = "gpfruabgjebubdad"
+	c.Mail.ToEmail = "768305875@qq.com"
+	c.Mail.TLSSkipVerify = true
 	c.Mail.Timeout = 15
 	return c
 }
