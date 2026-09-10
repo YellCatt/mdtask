@@ -163,13 +163,17 @@ func DueText(t store.Task) string {
 }
 
 func PriorityColor(p string) string {
-	switch strings.ToLower(p) {
-	case "high":
+	switch strings.ToLower(strings.TrimSpace(p)) {
+	case "p0":
 		return cRed
-	case "mid", "medium":
+	case "p1":
+		return cRed
+	case "p2":
 		return cYel
-	case "low":
+	case "p3":
 		return cBlue
+	case "p4":
+		return cGray
 	default:
 		return ""
 	}

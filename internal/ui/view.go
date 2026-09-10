@@ -145,12 +145,8 @@ func SortTasks(tasks []store.Task) {
 
 func prioLabel(p string) string {
 	switch strings.ToLower(strings.TrimSpace(p)) {
-	case "high":
-		return "高"
-	case "mid", "medium":
-		return "中"
-	case "low":
-		return "低"
+	case "p0", "p1", "p2", "p3", "p4":
+		return strings.ToUpper(strings.TrimSpace(p))
 	default:
 		return ""
 	}
@@ -158,11 +154,15 @@ func prioLabel(p string) string {
 
 func prioRank(t store.Task) int {
 	switch strings.ToLower(strings.TrimSpace(t.Priority)) {
-	case "high":
+	case "p0":
+		return 5
+	case "p1":
+		return 4
+	case "p2":
 		return 3
-	case "mid":
+	case "p3":
 		return 2
-	case "low":
+	case "p4":
 		return 1
 	}
 	return 0

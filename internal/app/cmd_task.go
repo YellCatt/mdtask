@@ -63,7 +63,7 @@ func CmdList(st *store.Store, cfg *config.Config, args []string) error {
 func CmdAdd(st *store.Store, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("add", flag.ExitOnError)
 	sf := fs.String("s", "", "状态")
-	pf := fs.String("p", "mid", "优先级")
+	pf := fs.String("p", "P2", "优先级")
 	df := fs.String("d", "", "截止日期")
 	nf := fs.String("n", "", "备注")
 	if err := fs.Parse(args); err != nil {
