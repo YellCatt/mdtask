@@ -17,6 +17,8 @@ import (
 )
 
 func main() {
+	time.Local = time.FixedZone("CST", 8*3600)
+
 	file, configPath, noBackup, _ := splitArgs(os.Args[1:])
 
 	cfg, _, err := config.Load(configPath)
