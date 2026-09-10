@@ -28,11 +28,17 @@ type daemonEvent struct {
 }
 
 type daemonState struct {
-	LastReport time.Time         `json:"last_report"`
-	LastFire   string            `json:"last_fire"`
-	Snapshot   map[string]string `json:"snapshot"` // id -> 状态
-	Events     []daemonEvent     `json:"events"`
+	LastReport  time.Time         `json:"last_report"`
+	LastFire    string            `json:"last_fire"`
+	LastWeekly  string            `json:"last_weekly"`  // 已出过的周报周期，如 2026-W37
+	LastMonthly string            `json:"last_monthly"` // 已出过的月报周期，如 2026-09
+	LastYearly  string            `json:"last_yearly"`  // 已出过的年报周期，如 2026
+	Snapshot    map[string]string `json:"snapshot"`     // id -> 状态
+	Events      []daemonEvent     `json:"events"`
 }
+
+// eventKeepDays 事件保留天数，要撑得住年报（按月）跨度
+const eventKeepDays = 400
 
 type clock struct{ h, m int }
 
@@ -74,13 +80,14 @@ func cmdDaemon(args []string) {
 
 	if *once {
 		d.poll()
-		d.report(time.Now(), cfg.Report.Notify)
+		d.reportPeriod(kDaily, time.Now(), false, cfg.Report.Notify, d.openFile)
 		return
 	}
 
 	logf("MDTask 常驻已启动，数据文件: %s", st.path)
 	logf("扫描间隔 %s，日报时间 %s", d.interval, strings.Join(strings.Split(*at, ","), " / "))
-	logf("日报目录: %s", d.dailyDir())
+	logf("报告目录: %s（周报 %s / 月报 %s / 年报 %s）",
+		d.dailyDir(), weeklyDesc(), monthlyDesc(), yearlyDesc())
 	logf("按 Ctrl+C 退出")
 
 	d.poll() // 先建一次快照
@@ -90,7 +97,8 @@ func cmdDaemon(args []string) {
 	for range ticker.C {
 		d.poll()
 		if fire, ok := d.due(time.Now()); ok {
-			d.report(fire, cfg.Report.Notify)
+			d.reportPeriod(kDaily, fire, false, cfg.Report.Notify, d.openFile)
+			d.reportScheduled(fire)
 		}
 	}
 }
@@ -204,8 +212,8 @@ func (d *daemon) poll() {
 	}
 
 	d.state.Snapshot = cur
-	// 只保留最近 30 天的事件
-	cutoff := now.AddDate(0, 0, -30)
+	// 只保留最近 eventKeepDays 天的事件
+	cutoff := now.AddDate(0, 0, -eventKeepDays)
 	kept := d.state.Events[:0]
 	for _, e := range d.state.Events {
 		if e.At.After(cutoff) {

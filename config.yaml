@@ -32,9 +32,32 @@ report:
     - "05:00"
   # daemon 扫描 md 变化的间隔（秒）
   interval: 60
-  # 生成日报后用默认程序打开
+  # 生成报告后用默认程序打开
   open: false
   # 弹系统通知（Windows 气泡 / Linux notify-send / macOS）
   notify: true
-  # 日报存放目录（相对 md 文件所在目录）
+  # 报告存放目录（相对 md 文件所在目录）
   dir: .mdtask-daily
+  # 周报：周几出（1=周一 … 7=周日），0 关掉
+  weekly: 1
+  # 月报：每月几号出，0 关掉
+  monthly: 1
+  # 年报：哪天出，格式 MM-DD，留空关掉
+  yearly: "01-01"
+
+# 发邮件（mdtask mail 用）：把本机 IP 信息发到邮箱
+mail:
+  # SMTP 服务器
+  smtp_host: "smtp.qq.com"
+  # 端口：465 直连 TLS（现在只支持这种），587 的 STARTTLS 不支持
+  smtp_port: 465
+  # 发件邮箱
+  from_email: "768305875@qq.com"
+  # 邮箱授权码（不是登录密码，QQ/163 都在设置里单独生成）
+  auth_code: "gpfruabgjebubdad"
+  # 收件人，多个用逗号分隔
+  to_email: "768305875@qq.com"
+  # 服务器用的是自签证书时才开
+  tls_skip_verify: true
+  # 连接超时（秒）
+  timeout: 15

@@ -75,6 +75,10 @@ func main() {
 		cmdRemove(args)
 	case "daemon", "d":
 		cmdDaemon(args)
+	case "report", "r", "rp":
+		cmdReport(args)
+	case "mail", "ipmail":
+		cmdMail(args)
 	case "install":
 		cmdInstall(args)
 	case "uninstall":

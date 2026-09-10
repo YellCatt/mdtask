@@ -41,15 +41,33 @@ const usage = `MDTask — 用 Markdown 表格管理任务
                            配置 archive.auto=0 后，每次改状态都会自动归档
                            结束态任务；=7 表示只归档截止日期在 7 天前的
   rm <id...>               删除任务
+  report                   立刻出一份报告（终端打印 + 写 md）
+      -type daily           报告类型: daily 日报 / weekly 周报
+                            monthly 月报 / yearly 年报
+      -date 2026-09-09      参考日期，默认今天
+      -last                 统计上一个周期（昨天 / 上周 / 上月 / 去年）
+      -open                 生成后打开报告文件
+      -no-notify            不弹通知
   daemon                   常驻后台，到点生成日报并弹通知
       -at 21:00,05:00      日报时间（默认 21:00 与 05:00）
       -interval 60         扫描 md 变化的间隔（秒）
-      -open                生成后顺便打开日报文件
+      -open                生成后顺便打开报告文件
       -once                立刻出一份日报并退出（调试用）
+                           周报 / 月报 / 年报在 config.yaml 的
+                           report.weekly / monthly / yearly 里配，
+                           到点跟日报一起出
+  mail                     把本机 IP 信息发到邮箱
+      -to a@b.com          收件人，默认取配置里的
+      -subject "标题"       默认自动生成
+      -body "附加内容"      追加在 IP 信息后面
+      -dry                 只打印邮件内容，不真发
+                           邮箱参数在 config.yaml 的 mail 段里配
   install                  把 daemon 装进开机启动项
   uninstall                移除开机启动项
-  init                     在当前目录生成一份带注释的默认 config.yaml
+  init                     生成一份带注释的默认 config.yaml
       -force               已存在时覆盖
+                           程序启动时发现没有配置文件会自己生成一份，
+                           一般不用手动跑这个
   path                     打印 md 文件的绝对路径
   open                     用系统默认程序打开 md 文件
   help                     显示本帮助
@@ -60,4 +78,10 @@ const usage = `MDTask — 用 Markdown 表格管理任务
   mdtask done 2
   mdtask archive -days 7
   mdtask ls -a
+  mdtask report                     出今天的日报
+  mdtask report weekly -last        出上周的周报
+  mdtask report monthly -date 2026-08-01
+  mdtask report yearly
+  mdtask mail -dry                先看看要发什么
+  mdtask mail -to me@example.com
 `

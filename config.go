@@ -26,7 +26,20 @@ type Config struct {
 		Open     bool     `yaml:"open"`
 		Notify   bool     `yaml:"notify"`
 		Dir      string   `yaml:"dir"`
+		Weekly   int      `yaml:"weekly"`  // 周几出周报: 1=周一 … 7=周日，0=关闭
+		Monthly  int      `yaml:"monthly"` // 每月几号出月报，0=关闭
+		Yearly   string   `yaml:"yearly"`  // 出年报的日期 MM-DD，空=关闭
 	} `yaml:"report"`
+
+	Mail struct {
+		SMTPHost      string `yaml:"smtp_host"`       // SMTP 服务器，如 smtp.qq.com
+		SMTPPort      int    `yaml:"smtp_port"`       // 465 = 直连 TLS
+		FromEmail     string `yaml:"from_email"`      // 发件邮箱
+		AuthCode      string `yaml:"auth_code"`       // 授权码 / 密码
+		ToEmail       string `yaml:"to_email"`        // 收件人，多个用逗号分隔
+		TLSSkipVerify bool   `yaml:"tls_skip_verify"` // 自签证书时才开
+		Timeout       int    `yaml:"timeout"`         // 连接超时（秒）
+	} `yaml:"mail"`
 }
 
 const configHelp = `# MDTask 配置
@@ -63,12 +76,35 @@ report:
     - "05:00"
   # daemon 扫描 md 变化的间隔（秒）
   interval: 60
-  # 生成日报后用默认程序打开
+  # 生成报告后用默认程序打开
   open: false
   # 弹系统通知（Windows 气泡 / Linux notify-send / macOS）
   notify: true
-  # 日报存放目录（相对 md 文件所在目录）
+  # 报告存放目录（相对 md 文件所在目录）
   dir: .mdtask-daily
+  # 周报：周几出（1=周一 … 7=周日），0 关掉
+  weekly: 1
+  # 月报：每月几号出，0 关掉
+  monthly: 1
+  # 年报：哪天出，格式 MM-DD，留空关掉
+  yearly: "01-01"
+
+# 发邮件（mdtask mail 用）：把本机 IP 信息发到邮箱
+mail:
+  # SMTP 服务器
+  smtp_host: smtp.qq.com
+  # 端口：465 直连 TLS（现在只支持这种），587 的 STARTTLS 不支持
+  smtp_port: 465
+  # 发件邮箱
+  from_email: ""
+  # 邮箱授权码（不是登录密码，QQ/163 都在设置里单独生成）
+  auth_code: ""
+  # 收件人，多个用逗号分隔
+  to_email: ""
+  # 服务器用的是自签证书时才开
+  tls_skip_verify: false
+  # 连接超时（秒）
+  timeout: 15
 `
 
 func defaultConfig() *Config {
@@ -79,6 +115,12 @@ func defaultConfig() *Config {
 	c.Report.Interval = 60
 	c.Report.Notify = true
 	c.Report.Dir = ".mdtask-daily"
+	c.Report.Weekly = 1
+	c.Report.Monthly = 1
+	c.Report.Yearly = "01-01"
+	c.Mail.SMTPHost = "smtp.qq.com"
+	c.Mail.SMTPPort = 465
+	c.Mail.Timeout = 15
 	return c
 }
 
@@ -87,34 +129,58 @@ var cfg = defaultConfig()
 // cfgPathUsed 实际生效的配置文件路径，install 时要写进启动命令
 var cfgPathUsed string
 
-// loadConfig 读取配置；explicit 为空时依次找 ./config.yaml、./config.yml
+// loadConfig 读取配置；explicit 为空时依次找 ./config.yaml、./config.yml。
+// 一个都没有就按默认配置自动生成一份再读，省得手工 init。
 func loadConfig(explicit string) {
-	candidates := []string{}
+	candidates := []string{"config.yaml", "config.yml"}
 	if explicit != "" {
-		candidates = append(candidates, explicit)
-	} else {
-		candidates = append(candidates, "config.yaml", "config.yml")
+		candidates = []string{explicit}
 	}
 	for _, p := range candidates {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			if explicit != "" {
-				fatal(fmt.Errorf("读不到配置文件 %s: %w", p, err))
-			}
-			continue
+		if b, err := os.ReadFile(p); err == nil {
+			loadConfigBytes(p, b)
+			return
 		}
-		root, err := parseYAML(string(b))
-		if err != nil {
-			fatal(fmt.Errorf("配置文件 %s 解析失败: %w", p, err))
-		}
-		applyConfig(cfg, root)
-		if abs, err := filepath.Abs(p); err == nil {
-			cfgPathUsed = abs
-		} else {
-			cfgPathUsed = p
-		}
-		return
 	}
+
+	target := "config.yaml"
+	if explicit != "" {
+		target = explicit
+	}
+	if err := writeDefaultConfig(target); err == nil {
+		loadConfigBytes(target, []byte(configHelp))
+		if abs, err := filepath.Abs(target); err == nil {
+			target = abs
+		}
+		fmt.Printf("没找到配置文件，已自动生成 %s\n", target)
+	} else {
+		fmt.Printf("自动生成配置文件 %s 失败（%v），本次用内置默认配置\n", target, err)
+		cfgPathUsed = ""
+	}
+}
+
+// loadConfigBytes 解析并套用配置内容
+func loadConfigBytes(path string, b []byte) {
+	root, err := parseYAML(string(b))
+	if err != nil {
+		fatal(fmt.Errorf("配置文件 %s 解析失败: %w", path, err))
+	}
+	applyConfig(cfg, root)
+	if abs, err := filepath.Abs(path); err == nil {
+		cfgPathUsed = abs
+	} else {
+		cfgPathUsed = path
+	}
+}
+
+// writeDefaultConfig 写一份带注释的默认配置，父目录不存在就一起建
+func writeDefaultConfig(path string) error {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, []byte(configHelp), 0o644)
 }
 
 func applyConfig(c *Config, n *yamlNode) {
@@ -177,6 +243,48 @@ func applyConfig(c *Config, n *yamlNode) {
 		if v, ok2 := m.val("dir"); ok2 && v.str() != "" {
 			c.Report.Dir = v.str()
 		}
+		if v, ok2 := m.val("weekly"); ok2 {
+			if i, ok3 := v.intVal(); ok3 {
+				c.Report.Weekly = i
+			}
+		}
+		if v, ok2 := m.val("monthly"); ok2 {
+			if i, ok3 := v.intVal(); ok3 {
+				c.Report.Monthly = i
+			}
+		}
+		if v, ok2 := m.val("yearly"); ok2 {
+			c.Report.Yearly = strings.TrimSpace(v.str())
+		}
+	}
+	if m, ok := n.val("mail"); ok {
+		if v, ok2 := m.val("smtp_host"); ok2 && v.str() != "" {
+			c.Mail.SMTPHost = strings.TrimSpace(v.str())
+		}
+		if v, ok2 := m.val("smtp_port"); ok2 {
+			if i, ok3 := v.intVal(); ok3 && i > 0 {
+				c.Mail.SMTPPort = i
+			}
+		}
+		if v, ok2 := m.val("from_email"); ok2 {
+			c.Mail.FromEmail = strings.TrimSpace(v.str())
+		}
+		if v, ok2 := m.val("auth_code"); ok2 {
+			c.Mail.AuthCode = strings.TrimSpace(v.str())
+		}
+		if v, ok2 := m.val("to_email"); ok2 {
+			c.Mail.ToEmail = strings.TrimSpace(v.str())
+		}
+		if v, ok2 := m.val("tls_skip_verify"); ok2 {
+			if b, ok3 := v.bool(); ok3 {
+				c.Mail.TLSSkipVerify = b
+			}
+		}
+		if v, ok2 := m.val("timeout"); ok2 {
+			if i, ok3 := v.intVal(); ok3 && i > 0 {
+				c.Mail.Timeout = i
+			}
+		}
 	}
 }
 
@@ -207,7 +315,7 @@ func cmdInit(args []string) {
 		fmt.Printf("%s 已存在，没动它（要覆盖加 -force）\n", path)
 		return
 	}
-	if err := os.WriteFile(path, []byte(configHelp), 0o644); err != nil {
+	if err := writeDefaultConfig(path); err != nil {
 		fatal(err)
 	}
 	abs, _ := filepath.Abs(path)
