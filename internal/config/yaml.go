@@ -5,7 +5,9 @@ import (
 	"strings"
 )
 
-// 一个够用的 YAML 子集解析器：支持注释、缩进嵌套、key: value�? 列表、[a, b] 内联列表�?// 不支持锚点、多行字符串、复杂缩进，配置文件用不到那些�?
+// A small YAML subset parser: comments, indented nesting, key: value,
+// list items and [a, b] inline lists. No anchors, multi-line strings or
+// fancy indentation - the config files don't need them.
 const (
 	kindScalar = 0
 	kindMap    = 1
@@ -107,7 +109,7 @@ func isSeqItem(s string) bool {
 	return s == "-" || strings.HasPrefix(s, "- ")
 }
 
-// splitKV 用第一个不在引号内�?"key: " 切分
+// splitKV splits on the first "key: " outside quotes.
 func splitKV(s string) (string, string, bool) {
 	var inQ byte
 	for i := 0; i < len(s); i++ {
@@ -165,7 +167,7 @@ func unquote(s string) string {
 	return s
 }
 
-// ---------- 取�?----------
+// ---------- Accessors ----------
 
 func (n *yamlNode) val(key string) (*yamlNode, bool) {
 	if n == nil || n.kind != kindMap {
@@ -218,4 +220,3 @@ func (n *yamlNode) strings() []string {
 	}
 	return nil
 }
-
