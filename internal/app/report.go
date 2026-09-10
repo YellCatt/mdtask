@@ -3,7 +3,6 @@ package app
 import (
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
