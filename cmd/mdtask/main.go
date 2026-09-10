@@ -25,13 +25,13 @@ func main() {
 		file = os.Getenv("MDTASK_FILE")
 	}
 	if file == "" {
-		file = cfg.File
+		file = cfg.Dir
 	}
 	abs, err := filepath.Abs(file)
 	if err != nil {
 		fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	if err := os.MkdirAll(abs, 0o755); err != nil {
 		fatal(err)
 	}
 

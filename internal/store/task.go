@@ -20,6 +20,7 @@ type Task struct {
 	Due      string            `json:"due"`
 	Note     string            `json:"note"`
 	Extra    map[string]string `json:"extra,omitempty"`
+	Source   string            `json:"-"`
 }
 
 func (t *Task) Get(col string) string {

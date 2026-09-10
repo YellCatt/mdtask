@@ -13,7 +13,6 @@ import (
 
 var ErrNotFound = errors.New("任务不存在")
 
-// 标准字段列名，跟 md 表头对应（通过别名表宽容匹配）
 const (
 	FID       = "ID"
 	FTitle    = "标题"
@@ -25,7 +24,6 @@ const (
 
 var stdColumns = []string{FStatus, FID, FTitle, FPriority, FDue, FNote}
 
-// 列名别名 -> 标准字段（key 已归一化）
 var fieldAliases = map[string]string{
 	"id": FID, "编号": FID, "序号": FID, "no": FID,
 	"标题": FTitle, "title": FTitle, "任务": FTitle, "名称": FTitle, "name": FTitle, "内容": FTitle,
@@ -48,101 +46,194 @@ func canonField(col string) string {
 	return ""
 }
 
-// Store 以 md 文件为唯一数据源。表格之外的所有内容（标题、说明、其它段落）都会原样保留。
-type Store struct {
-	mu     sync.Mutex
-	Path   string
-	Backup bool
-
-	crlf      bool
-	dirty     bool
-	lines     []string
-	main      *tbl
-	arch      *tbl
-	ArchTitle string
+type fileState struct {
+	Path  string
+	Name  string
+	crlf  bool
+	dirty bool
+	lines []string
+	main  *tbl
+	arch  *tbl
 }
 
-func NewStore(path string, backup bool) *Store {
+type Store struct {
+	mu        sync.Mutex
+	Dir       string
+	Backup    bool
+	ArchTitle string
+	files     []*fileState
+	primary   *fileState
+}
+
+func NewStore(dir string, backup bool) *Store {
 	title := os.Getenv("MDTASK_ARCHIVE_HEADING")
 	if title == "" {
 		title = "归档"
 	}
-	return &Store{Path: path, Backup: backup, ArchTitle: title}
+	return &Store{Dir: dir, Backup: backup, ArchTitle: title}
 }
 
-// Init 首次加载，按需补齐缺失列 / 编号并落盘。
 func (s *Store) Init() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.Load(); err != nil {
 		return err
 	}
-	if s.dirty {
-		return s.flush()
-	}
-	return nil
-}
-
-func (s *Store) Load() error {
-	s.dirty = false
-	b, err := os.ReadFile(s.Path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-		b = []byte(defaultDoc())
-		s.dirty = true
-	}
-	raw := string(b)
-	s.crlf = strings.Count(raw, "\r\n") > 0
-	s.lines = strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
-	s.main, s.arch = nil, nil
-
-	a, b2 := locateTableFrom(s.lines, 0)
-	if a < 0 {
-		s.createMainTable()
-		a, b2 = locateTableFrom(s.lines, 0)
-	}
-	s.main = &tbl{start: a, end: b2}
-	if s.main.parse(s.lines) {
-		s.dirty = true
-	}
-
-	if hi := findHeadingFrom(s.lines, s.ArchTitle, s.main.end); hi >= 0 {
-		if x, y := locateTableFrom(s.lines, hi+1); x >= 0 {
-			s.arch = &tbl{start: x, end: y}
-			if s.arch.parse(s.lines) {
-				s.dirty = true
+	for _, f := range s.files {
+		if f.dirty {
+			if err := s.flushFile(f); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
 }
 
-// List 每次都从磁盘重新加载，这样用编辑器手改 md 后程序能立刻看到。
+func (s *Store) Load() error {
+	s.files = nil
+	s.primary = nil
+
+	ents, err := os.ReadDir(s.Dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(s.Dir, 0o755); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	}
+
+	var mdFiles []string
+	for _, e := range ents {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasSuffix(strings.ToLower(name), ".md") {
+			mdFiles = append(mdFiles, name)
+		}
+	}
+	sort.Strings(mdFiles)
+
+	if len(mdFiles) == 0 {
+		primaryPath := filepath.Join(s.Dir, "tasks.md")
+		f, err := s.loadFile(primaryPath)
+		if err != nil {
+			return err
+		}
+		s.files = append(s.files, f)
+		s.primary = f
+		return nil
+	}
+
+	for _, name := range mdFiles {
+		p := filepath.Join(s.Dir, name)
+		f, err := s.loadFile(p)
+		if err != nil {
+			return err
+		}
+		s.files = append(s.files, f)
+	}
+	s.primary = s.files[0]
+	return nil
+}
+
+func (s *Store) loadFile(path string) (*fileState, error) {
+	f := &fileState{Path: path, Name: filepath.Base(path)}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		b = []byte(defaultDoc())
+		f.dirty = true
+	}
+	raw := string(b)
+	f.crlf = strings.Count(raw, "\r\n") > 0
+	f.lines = strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+
+	a, b2 := locateTableFrom(f.lines, 0)
+	if a < 0 {
+		s.createMainTableIn(f)
+		a, b2 = locateTableFrom(f.lines, 0)
+	}
+	f.main = &tbl{start: a, end: b2}
+	if f.main.parse(f.lines) {
+		f.dirty = true
+	}
+	for i := range f.main.tasks {
+		f.main.tasks[i].Source = path
+	}
+
+	if hi := findHeadingFrom(f.lines, s.ArchTitle, f.main.end); hi >= 0 {
+		if x, y := locateTableFrom(f.lines, hi+1); x >= 0 {
+			f.arch = &tbl{start: x, end: y}
+			if f.arch.parse(f.lines) {
+				f.dirty = true
+			}
+			for i := range f.arch.tasks {
+				f.arch.tasks[i].Source = path
+			}
+		}
+	}
+	return f, nil
+}
+
+func (s *Store) createMainTableIn(f *fileState) {
+	blank := true
+	for _, l := range f.lines {
+		if strings.TrimSpace(l) != "" {
+			blank = false
+			break
+		}
+	}
+	if blank {
+		f.lines = strings.Split(strings.TrimRight(defaultDoc(), "\n"), "\n")
+		return
+	}
+	if strings.TrimSpace(f.lines[len(f.lines)-1]) != "" {
+		f.lines = append(f.lines, "")
+	}
+	f.lines = append(f.lines, headerRows(stdColumns)...)
+	f.dirty = true
+}
+
 func (s *Store) List() ([]Task, []string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.Load(); err != nil {
 		return nil, nil, err
 	}
-	return cloneTasks(s.main.tasks), append([]string(nil), s.main.Columns...), nil
+	var all []Task
+	var cols []string
+	for _, f := range s.files {
+		if f.main == nil {
+			continue
+		}
+		all = append(all, cloneTasks(f.main.tasks)...)
+		if len(cols) == 0 {
+			cols = append([]string(nil), f.main.Columns...)
+		}
+	}
+	return all, cols, nil
 }
 
-// ListArchive 返回归档表里的任务
 func (s *Store) ListArchive() ([]Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.Load(); err != nil {
 		return nil, err
 	}
-	if s.arch == nil {
-		return nil, nil
+	var all []Task
+	for _, f := range s.files {
+		if f.arch != nil {
+			all = append(all, cloneTasks(f.arch.tasks)...)
+		}
 	}
-	return cloneTasks(s.arch.tasks), nil
+	return all, nil
 }
 
-// Update 在读-改-写之间加锁；进入回调前已重新加载最新磁盘内容。
 func (s *Store) Update(fn func(st *Store) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -152,104 +243,115 @@ func (s *Store) Update(fn func(st *Store) error) error {
 	if err := fn(s); err != nil {
 		return err
 	}
-	return s.flush()
-}
-
-// Archive 把主表里满足条件的任务搬进归档表，返回搬走的数量。
-func (s *Store) Archive(pred func(Task) bool) int {
-	rest := make([]Task, 0, len(s.main.tasks))
-	var hit []Task
-	for _, t := range s.main.tasks {
-		if pred(t) {
-			hit = append(hit, t)
-		} else {
-			rest = append(rest, t)
+	for _, f := range s.files {
+		if f.dirty {
+			if err := s.flushFile(f); err != nil {
+				return err
+			}
 		}
 	}
-	if len(hit) == 0 {
-		return 0
+	return nil
+}
+
+func (s *Store) Archive(pred func(Task) bool) int {
+	total := 0
+	for _, f := range s.files {
+		if f.main == nil {
+			continue
+		}
+		rest := make([]Task, 0, len(f.main.tasks))
+		var hit []Task
+		for _, t := range f.main.tasks {
+			if pred(t) {
+				hit = append(hit, t)
+			} else {
+				rest = append(rest, t)
+			}
+		}
+		if len(hit) == 0 {
+			continue
+		}
+		s.ensureArchiveIn(f)
+		f.arch.tasks = append(f.arch.tasks, hit...)
+		f.main.tasks = rest
+		f.dirty = true
+		total += len(hit)
 	}
-	s.ensureArchive()
-	s.arch.tasks = append(s.arch.tasks, hit...)
-	s.main.tasks = rest
-	return len(hit)
+	return total
 }
 
 func (s *Store) AddTask(t Task) error {
-	s.main.tasks = append(s.main.tasks, t)
+	if s.primary == nil {
+		return errors.New("没有可用的任务文件")
+	}
+	t.Source = s.primary.Path
+	s.primary.main.tasks = append(s.primary.main.tasks, t)
+	s.primary.dirty = true
 	return nil
 }
 
 func (s *Store) UpdateTask(id string, fn func(*Task) error) error {
-	for i := range s.main.tasks {
-		if s.main.tasks[i].ID == id {
-			return fn(&s.main.tasks[i])
+	for _, f := range s.files {
+		for i := range f.main.tasks {
+			if f.main.tasks[i].ID == id {
+				if err := fn(&f.main.tasks[i]); err != nil {
+					return err
+				}
+				f.main.tasks[i].Source = f.Path
+				f.dirty = true
+				return nil
+			}
 		}
 	}
 	return ErrNotFound
 }
 
 func (s *Store) SetTaskStatus(id, status string) error {
-	for i := range s.main.tasks {
-		if s.main.tasks[i].ID == id {
-			s.main.tasks[i].Status = status
-			return nil
+	for _, f := range s.files {
+		for i := range f.main.tasks {
+			if f.main.tasks[i].ID == id {
+				f.main.tasks[i].Status = status
+				f.dirty = true
+				return nil
+			}
 		}
 	}
 	return ErrNotFound
 }
 
 func (s *Store) RemoveTask(id string) error {
-	for i := range s.main.tasks {
-		if s.main.tasks[i].ID == id {
-			s.main.tasks = append(s.main.tasks[:i], s.main.tasks[i+1:]...)
-			return nil
+	for _, f := range s.files {
+		for i := range f.main.tasks {
+			if f.main.tasks[i].ID == id {
+				f.main.tasks = append(f.main.tasks[:i], f.main.tasks[i+1:]...)
+				f.dirty = true
+				return nil
+			}
 		}
 	}
 	return ErrNotFound
 }
 
-// ensureArchive 没有归档章节就在文件末尾建一个
-func (s *Store) ensureArchive() {
-	if s.arch != nil {
+func (s *Store) ensureArchiveIn(f *fileState) {
+	if f.arch != nil {
 		return
 	}
-	cols := append([]string(nil), s.main.Columns...)
+	cols := append([]string(nil), f.main.Columns...)
 	if len(cols) == 0 {
 		cols = append([]string(nil), stdColumns...)
 	}
-	if strings.TrimSpace(s.lines[len(s.lines)-1]) != "" {
-		s.lines = append(s.lines, "")
+	if strings.TrimSpace(f.lines[len(f.lines)-1]) != "" {
+		f.lines = append(f.lines, "")
 	}
-	s.lines = append(s.lines, "## "+s.ArchTitle, "")
-	start := len(s.lines)
-	s.lines = append(s.lines, headerRows(cols)...)
+	f.lines = append(f.lines, "## "+s.ArchTitle, "")
+	start := len(f.lines)
+	f.lines = append(f.lines, headerRows(cols)...)
 
-	s.arch = &tbl{start: start, end: len(s.lines), Columns: cols}
+	f.arch = &tbl{start: start, end: len(f.lines), Columns: cols}
 	for _, c := range cols {
-		s.arch.fields = append(s.arch.fields, canonField(c))
+		f.arch.fields = append(f.arch.fields, canonField(c))
 	}
-	s.dirty = true
-}
-
-// createMainTable 文件里没有表格时，在末尾补一个空表格
-func (s *Store) createMainTable() {
-	blank := true
-	for _, l := range s.lines {
-		if strings.TrimSpace(l) != "" {
-			blank = false
-			break
-		}
-	}
-	if blank {
-		s.lines = strings.Split(strings.TrimRight(defaultDoc(), "\n"), "\n")
-		return
-	}
-	if strings.TrimSpace(s.lines[len(s.lines)-1]) != "" {
-		s.lines = append(s.lines, "")
-	}
-	s.lines = append(s.lines, headerRows(stdColumns)...)
-	s.dirty = true
+	f.dirty = true
 }
 
 func (s *Store) NextID() string {
@@ -261,28 +363,32 @@ func (s *Store) NextID() string {
 			}
 		}
 	}
-	scan(s.main.tasks)
-	if s.arch != nil {
-		scan(s.arch.tasks)
+	for _, f := range s.files {
+		if f.main != nil {
+			scan(f.main.tasks)
+		}
+		if f.arch != nil {
+			scan(f.arch.tasks)
+		}
 	}
 	return strconv.Itoa(max + 1)
 }
 
-func (s *Store) flush() error {
+func (s *Store) flushFile(f *fileState) error {
 	type repl struct {
 		start, end int
 		rows       []string
 	}
 	var rs []repl
-	if s.main != nil {
-		rs = append(rs, repl{s.main.start, s.main.end, s.main.render()})
+	if f.main != nil {
+		rs = append(rs, repl{f.main.start, f.main.end, f.main.render()})
 	}
-	if s.arch != nil {
-		rs = append(rs, repl{s.arch.start, s.arch.end, s.arch.render()})
+	if f.arch != nil {
+		rs = append(rs, repl{f.arch.start, f.arch.end, f.arch.render()})
 	}
 	sort.Slice(rs, func(i, j int) bool { return rs[i].start > rs[j].start })
 
-	out := append([]string(nil), s.lines...)
+	out := append([]string(nil), f.lines...)
 	for _, r := range rs {
 		nl := make([]string, 0, len(out)+len(r.rows))
 		nl = append(nl, out[:r.start]...)
@@ -292,14 +398,14 @@ func (s *Store) flush() error {
 	}
 
 	nlSep := "\n"
-	if s.crlf {
+	if f.crlf {
 		nlSep = "\r\n"
 	}
 	if s.Backup {
-		backupFile(s.Path)
+		backupFile(f.Path)
 	}
-	s.dirty = false
-	return atomicWrite(s.Path, []byte(strings.Join(out, nlSep)))
+	f.dirty = false
+	return atomicWrite(f.Path, []byte(strings.Join(out, nlSep)))
 }
 
 func atomicWrite(path string, data []byte) error {

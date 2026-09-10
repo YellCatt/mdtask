@@ -206,6 +206,6 @@ func CmdRemove(st *store.Store, cfg *config.Config, args []string) error {
 }
 
 func CmdPath(st *store.Store, cfg *config.Config, args []string) error {
-	fmt.Println(st.Path)
+	fmt.Println(st.Dir)
 	return nil
 }

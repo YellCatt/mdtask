@@ -91,7 +91,7 @@ func CmdDaemon(st *store.Store, cfg *config.Config, args []string) error {
 		return nil
 	}
 
-	logf("MDTask 常驻已启动，数据文件: %s", st.Path)
+	logf("MDTask 常驻已启动，数据目录: %s", st.Dir)
 	logf("扫描间隔 %s，日报时间: %s", d.interval, strings.Join(strings.Split(*at, ","), " / "))
 	logf("报告目录: %s", d.dailyDir())
 	logf("按 Ctrl+C 退出")
@@ -140,7 +140,7 @@ func logf(format string, a ...any) {
 }
 
 func (d *daemon) statePath() string {
-	return filepath.Join(filepath.Dir(d.st.Path), ".mdtask-daemon.json")
+	return filepath.Join(d.st.Dir, ".mdtask-daemon.json")
 }
 
 func (d *daemon) dailyDir() string {
@@ -151,7 +151,7 @@ func (d *daemon) dailyDir() string {
 	if filepath.IsAbs(dir) {
 		return dir
 	}
-	return filepath.Join(filepath.Dir(d.st.Path), dir)
+	return filepath.Join(d.st.Dir, dir)
 }
 
 func (d *daemon) loadState() {

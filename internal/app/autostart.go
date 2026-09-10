@@ -23,7 +23,7 @@ func CmdInstall(st *store.Store, cfg *config.Config, args []string) error {
 		return err
 	}
 	exe, _ = filepath.Abs(exe)
-	data, _ := filepath.Abs(st.Path)
+	data, _ := filepath.Abs(st.Dir)
 
 	runArgs := fmt.Sprintf(`-file "%s"`, data)
 	if pathEnv := os.Getenv("MDTASK_CONFIG_PATH"); pathEnv != "" {
@@ -125,5 +125,5 @@ func CmdUninstall(st *store.Store, cfg *config.Config, args []string) error {
 }
 
 func CmdOpen(st *store.Store, cfg *config.Config, args []string) error {
-	return notify.OpenFile(st.Path)
+	return notify.OpenFile(st.Dir)
 }

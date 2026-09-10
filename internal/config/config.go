@@ -10,7 +10,7 @@ import (
 )
 
 type Config struct {
-	File   string `yaml:"file"`
+	Dir    string `yaml:"dir"`
 	Backup bool   `yaml:"backup"`
 	Color  string `yaml:"color"`
 
@@ -45,8 +45,8 @@ type Config struct {
 const configHelp = `# MDTask 配置
 # 放在 mdtask 同目录，或运行时用 -config 指定。命令行参数优先级高于这里。
 
-# 任务 md 文件（相对路径按当前目录解析）
-file: tasks.md
+# 任务 md 文件目录（目录下所有 .md 都会被读取）
+dir: tasks
 
 # 每次写入前把旧文件备份到 .mdtask-backup/（保留最近 10 份）
 backup: true
@@ -108,7 +108,7 @@ mail:
 `
 
 func Default() *Config {
-	c := &Config{File: "tasks.md", Backup: true, Color: "auto"}
+	c := &Config{Dir: "tasks", Backup: true, Color: "auto"}
 	c.Archive.Heading = "归档"
 	c.Archive.Auto = -1
 	c.Report.Times = []string{"21:00", "05:00"}
@@ -179,8 +179,8 @@ func writeDefault(path string) error {
 }
 
 func apply(c *Config, n *yamlNode) {
-	if v, ok := n.val("file"); ok && v.str() != "" {
-		c.File = v.str()
+	if v, ok := n.val("dir"); ok && v.str() != "" {
+		c.Dir = v.str()
 	}
 	if v, ok := n.val("backup"); ok {
 		if b, ok2 := v.bool(); ok2 {
