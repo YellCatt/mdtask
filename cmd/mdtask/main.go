@@ -69,6 +69,9 @@ func dumpAllReports(st *store.Store, baseDir string) {
 	today := store.Today()
 	root := filepath.Join(baseDir, "reports")
 
+	archived, _ := st.ListArchive()
+	open, _, _ := st.List()
+
 	type entry struct {
 		dir      string
 		filename string
@@ -79,16 +82,16 @@ func dumpAllReports(st *store.Store, baseDir string) {
 
 	results := []entry{}
 
-	subject, body, err := report.BuildDaily(st)
+	subject, body, err := report.BuildDaily(archived, open)
 	results = append(results, entry{"daily", today.AddDate(0, 0, -1).Format("2006-01-02") + ".txt", subject, body, err})
 
-	subject, body, err = report.BuildWeekly(st)
+	subject, body, err = report.BuildWeekly(archived, open)
 	results = append(results, entry{"week", weekLabel(today) + ".txt", subject, body, err})
 
-	subject, body, err = report.BuildMonthly(st)
+	subject, body, err = report.BuildMonthly(archived, open)
 	results = append(results, entry{"month", monthLabel(today) + ".txt", subject, body, err})
 
-	subject, body, err = report.BuildYearly(st)
+	subject, body, err = report.BuildYearly(archived, open)
 	results = append(results, entry{"year", yearLabel(today) + ".txt", subject, body, err})
 
 	for _, r := range results {
@@ -244,6 +247,9 @@ func runMailer(st *store.Store, cfg *config.Config) {
 }
 
 func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, now time.Time) {
+	archived, _ := st.ListArchive()
+	open, _, _ := st.List()
+
 	tasks := []struct {
 		freq   string
 		check  func(currKey string) bool
@@ -253,7 +259,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 		{
 			"daily",
 			func(k string) bool { return k != tracker.dailyKey },
-			func() (string, string, error) { return report.BuildDaily(st) },
+			func() (string, string, error) { return report.BuildDaily(archived, open) },
 			func(k string) { tracker.dailyKey = k },
 		},
 		{
@@ -271,7 +277,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 				}
 				return k != tracker.weeklyKey
 			},
-			func() (string, string, error) { return report.BuildWeekly(st) },
+			func() (string, string, error) { return report.BuildWeekly(archived, open) },
 			func(k string) { tracker.weeklyKey = k },
 		},
 		{
@@ -285,7 +291,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 				}
 				return k != tracker.monthlyKey
 			},
-			func() (string, string, error) { return report.BuildMonthly(st) },
+			func() (string, string, error) { return report.BuildMonthly(archived, open) },
 			func(k string) { tracker.monthlyKey = k },
 		},
 		{
@@ -305,7 +311,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 				}
 				return k != tracker.yearlyKey
 			},
-			func() (string, string, error) { return report.BuildYearly(st) },
+			func() (string, string, error) { return report.BuildYearly(archived, open) },
 			func(k string) { tracker.yearlyKey = k },
 		},
 	}
