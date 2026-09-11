@@ -135,9 +135,8 @@ func SortTasks(tasks []store.Task) {
 		if a != b {
 			return a < b
 		}
-		a, b = prioRank(tasks[i]), prioRank(tasks[j])
-		if a != b {
-			return a > b
+		if ra, rb := store.PriorityRank(tasks[i].Priority), store.PriorityRank(tasks[j].Priority); ra != rb {
+			return ra > rb
 		}
 		return dueKey(tasks[i].Due) < dueKey(tasks[j].Due)
 	})
@@ -150,22 +149,6 @@ func prioLabel(p string) string {
 	default:
 		return ""
 	}
-}
-
-func prioRank(t store.Task) int {
-	switch strings.ToLower(strings.TrimSpace(t.Priority)) {
-	case "p0":
-		return 5
-	case "p1":
-		return 4
-	case "p2":
-		return 3
-	case "p3":
-		return 2
-	case "p4":
-		return 1
-	}
-	return 0
 }
 
 func dueKey(v string) string {

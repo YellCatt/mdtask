@@ -29,11 +29,7 @@ func BuildDaily(archived, open []store.Task) (subject string, body string, err e
 func BuildWeekly(archived, open []store.Task) (subject string, body string, err error) {
 	today := store.Today()
 
-	weekday := int(today.Weekday())
-	if weekday == 0 {
-		weekday = 7
-	}
-	monday := today.AddDate(0, 0, 1-weekday)
+	monday := store.MondayOf(today)
 	lastMonday := monday.AddDate(0, 0, -7)
 	lastSunday := monday.AddDate(0, 0, -1)
 

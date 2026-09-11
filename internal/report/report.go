@@ -17,26 +17,10 @@ const (
 
 var prioOrder = []string{"P0", "P1", "P2", "P3", "P4"}
 
-func prioRank(p string) int {
-	switch strings.ToUpper(strings.TrimSpace(p)) {
-	case "P0":
-		return 5
-	case "P1":
-		return 4
-	case "P2":
-		return 3
-	case "P3":
-		return 2
-	case "P4":
-		return 1
-	}
-	return 0
-}
-
 func sortByPrio(ts []store.Task) []store.Task {
 	out := append([]store.Task(nil), ts...)
 	sort.SliceStable(out, func(i, j int) bool {
-		ri, rj := prioRank(out[i].Priority), prioRank(out[j].Priority)
+		ri, rj := store.PriorityRank(out[i].Priority), store.PriorityRank(out[j].Priority)
 		if ri != rj {
 			return ri > rj
 		}
