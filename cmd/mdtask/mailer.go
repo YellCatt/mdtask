@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,10 +23,20 @@ type sentTracker struct {
 	yearlyKey  string
 }
 
-func dumpAllReports(st *store.Store, baseDir string) {
+func dumpAllReports(st *store.Store, cfg *config.Config, baseDir string) {
 	logger.Info("dumpAllReports: 启动时生成四份报告")
 	today := store.Today()
-	root := filepath.Join(baseDir, "reports")
+	root := strings.TrimSpace(cfg.Report.Dir)
+	if root == "" {
+		root = "reports"
+	}
+	if !filepath.IsAbs(root) {
+		root = filepath.Join(baseDir, root)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		logger.Error("创建报告根目录失败", "dir", root, "err", err)
+		return
+	}
 
 	archived, _ := st.ListArchive()
 	open, _, _ := st.List()
@@ -167,31 +178,57 @@ func initSentTracker(cfg *config.Config, t time.Time) *sentTracker {
 	return st
 }
 
-func reportHourMin(cfg *config.Config) (int, int) {
-	times := cfg.Report.Times
-	if len(times) == 0 {
-		return 5, 0
+type clock struct{ h, m int }
+
+// reportClocks 解析配置里所有触发时间点，去重并按时间先后排序。
+func reportClocks(cfg *config.Config) []clock {
+	var out []clock
+	seen := map[clock]bool{}
+	for _, s := range cfg.Report.Times {
+		parts := strings.SplitN(strings.TrimSpace(s), ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		h, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+		m, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+			continue
+		}
+		c := clock{h, m}
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		out = append(out, c)
 	}
-	last := times[len(times)-1]
-	parts := strings.SplitN(last, ":", 2)
-	h := 5
-	m := 0
-	if len(parts) == 2 {
-		fmt.Sscanf(parts[0], "%d", &h)
-		fmt.Sscanf(parts[1], "%d", &m)
-	} else if len(parts) == 1 {
-		fmt.Sscanf(parts[0], "%d", &h)
-	}
-	return h, m
+	sort.Slice(out, func(i, j int) bool { return out[i].h*60+out[i].m < out[j].h*60+out[j].m })
+	return out
 }
 
-func nextReportTime(cfg *config.Config, from time.Time) time.Time {
-	h, m := reportHourMin(cfg)
-	t := time.Date(from.Year(), from.Month(), from.Day(), h, m, 0, 0, from.Location())
-	if !t.After(from) {
-		t = t.AddDate(0, 0, 1)
+// reportHourMin 返回当天最早的时间点，用于判断“今天的报告是否已过触发时刻”。
+func reportHourMin(cfg *config.Config) (int, int) {
+	if cs := reportClocks(cfg); len(cs) > 0 {
+		return cs[0].h, cs[0].m
 	}
-	return t
+	return 5, 0
+}
+
+// nextReportTime 返回所有配置时间点中，严格晚于 from 的最近一个时刻。
+func nextReportTime(cfg *config.Config, from time.Time) time.Time {
+	var best time.Time
+	for _, c := range reportClocks(cfg) {
+		t := time.Date(from.Year(), from.Month(), from.Day(), c.h, c.m, 0, 0, from.Location())
+		if !t.After(from) {
+			t = t.AddDate(0, 0, 1)
+		}
+		if best.IsZero() || t.Before(best) {
+			best = t
+		}
+	}
+	if best.IsZero() {
+		best = from.Add(24 * time.Hour)
+	}
+	return best
 }
 
 func runMailer(st *store.Store, cfg *config.Config) {

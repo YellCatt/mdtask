@@ -71,8 +71,11 @@ type Store struct {
 	primary   *fileState
 }
 
-func NewStore(dir string, backup bool) *Store {
-	title := os.Getenv("MDTASK_ARCHIVE_HEADING")
+func NewStore(dir string, backup bool, archTitle string) *Store {
+	title := strings.TrimSpace(archTitle)
+	if title == "" {
+		title = os.Getenv("MDTASK_ARCHIVE_HEADING")
+	}
 	if title == "" {
 		title = "归档"
 	}

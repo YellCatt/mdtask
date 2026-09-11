@@ -2,12 +2,11 @@
 
 一个**基于 Markdown 表格**的轻量级任务管理工具，带守护进程常驻 + 定时邮件报告。
 
-任务数据存在 `.md` 文件里，用 Markdown 表格维护——你可以用任何编辑器打开它手工改，也可以用 `mdtask` 命令行操作。守护进程后台常驻，定时生成日报/周报/月报/年报并通过邮件发出。
+任务数据存在 `.md` 文件里，用 Markdown 表格维护——你可以用任何编辑器打开它手工改。守护进程后台常驻，定时生成日报/周报/月报/年报并通过邮件发出。
 
 ## 特性
 
 - 📄 **纯 Markdown 存储**：所有任务是 `.md` 文件里的表格，人类可读、可直接用 git 跟踪
-- 🖥️ **CLI 命令行**：`add / list / show / edit / done / doing / hold / cancel / rm / archive`
 - 🤖 **守护进程常驻**：自动扫描 md 文件变化，为新任务补填「添加日期」
 - 📧 **四周期邮件报告**：日报、周报、月报、年报，按配置时间点自动发送
 - 🗂️ **自动归档**：完成的任务可自动或手动移入归档表
@@ -31,40 +30,6 @@ go build -o mdtask ./cmd/mdtask
 ./mdtask -f ./tasks
 ```
 
-### 任务管理（CLI 模式）
-
-```bash
-# 列出所有任务
-./mdtask list
-
-# 添加
-./mdtask add 完成项目提案 -p P1 -d 2026-09-15 -n "客户要求周五前交"
-
-# 按状态筛选
-./mdtask list -s done
-
-# 按关键词搜索
-./mdtask list -q 客户
-
-# 标记状态
-./mdtask done 3            # 把 ID 为 3 的任务标记为完成
-./mdtask mark 5 doing      # 等价于 doing 命令
-./mdtask cancel 8 9        # 支持一次操作多个 ID
-
-# 编辑
-./mdtask edit 3 -t "更新后的标题" -p P0 -d 2026-09-20
-
-# 查看详情
-./mdtask show 3
-
-# 归档
-./mdtask archive --days 7  # 把截止日期在 7 天前的已完成任务归档
-./mdtask archive --all     # 连停滞(❌)一起归档
-
-# 查看任务文件路径
-./mdtask path
-```
-
 ### 守护进程模式
 
 ```bash
@@ -76,7 +41,7 @@ go build -o mdtask ./cmd/mdtask
 1. 加载配置和所有 md 文件
 2. 在启动目录下生成 `reports/` 子目录，写入一份完整的四周期报告
 3. 启动邮件调度 goroutine，按 `config.yaml` 里的 `report.times` 发送邮件
-4. 主循环每 10 秒扫描一次 md 文件，为新任务补填「添加日期」字段
+4. 主循环每 `report.interval` 秒（默认 60）扫描一次 md 文件，为新任务补填「添加日期」字段
 
 进程会一直驻留直到被 `Ctrl+C` 或 `kill`。
 
@@ -109,12 +74,12 @@ go build -o mdtask ./cmd/mdtask
 
 - 列名支持中英文别名，比如 `ID/编号/序号`、`标题/Title/名称`、`状态/Status/进度` 等
 - 表头行可以随意增减，未知列会被原样保留
-- **不需要手工写归档章节**：命令执行 archive 时会自动创建
+- **不需要手工写归档章节**：程序写入归档时会自动补建该章节
 - 多 md 文件：目录下所有 `.md` 会被合并读取，ID 全局唯一
 
 ### 四种状态
 
-| Emoji | 命令名   | 含义       | 是否关闭 |
+| Emoji | 状态值   | 含义       | 是否关闭 |
 |-------|----------|------------|----------|
 | ✅     | `done`   | 完成       | 是        |
 | ⏸️     | `doing`  | 进行中     | 否        |
@@ -146,7 +111,7 @@ archive:
   heading: 归档
   # 自动归档: -1 关闭 / 0 一标记结束就归档 / N 截止日期 N 天后才归档
   auto: -1
-  # archive 命令是否连「停滞」一起搬走
+  # 归档时是否连「停滞」一起搬走
   include_stuck: false
 
 report:
@@ -160,8 +125,8 @@ report:
   open: false
   # 弹系统通知（Windows 气泡 / Linux notify-send / macOS）
   notify: true
-  # 报告存放目录（相对 md 文件所在目录）
-  dir: .mdtask-daily
+  # 报告存放目录（相对程序运行目录；留空则用 reports）
+  dir: reports
   # 周报：周几出（1=周一 … 7=周日），0 关闭
   weekly: 1
   # 月报：每月几号出，0 关闭
@@ -222,8 +187,8 @@ reports/
 
 ### 邮件报告
 
-按 `config.yaml` 里的 `report.times` 触发（例：每天 21:00 和 05:00）。
-四种周期同时检查，该发的会一起发出。
+按 `config.yaml` 里的 `report.times` 调度（例：每天 21:00 和 05:00），进程会在每个时间点醒来检查。
+四种周期同时检查，该发的会一起发出；同一个周期（如当天日报）只会发一次，不会重复。
 
 防重发机制：进程维护一个内存中的 `sentTracker`，记录每个周期上一次成功发送的 key。
 进程 crash 重启后，`initSentTracker` 会根据当前时间正确恢复状态，不会漏发或重发。
@@ -236,7 +201,6 @@ mdtask/
 │   └── mdtask/
 │       └── main.go              # 守护进程入口（后台常驻、邮件调度、报告生成）
 ├── internal/
-│   ├── app/                     # CLI 命令实现（list/add/edit/done/archive/daemon/report）
 │   ├── config/                  # 配置加载 + YAML 解析
 │   ├── logger/                  # 按天轮转的日志系统（保留 7 天）
 │   ├── mail/                    # SMTP 邮件发送
@@ -291,12 +255,12 @@ logs/
 
 ### 手工编辑 md 文件后会怎样？
 
-守护进程每 10 秒重新 `Load()` 一次所有 md 文件，手工编辑会在下一轮扫描中被感知。
+守护进程每 `report.interval` 秒（默认 60）重新 `Load()` 一次所有 md 文件，手工编辑会在下一轮扫描中被感知。
 如果是新任务（有 ID 但没有「添加日期」），会自动补填今天的日期。
 
 ### 多任务文件怎么合并？
 
-目录下所有 `.md` 都会被读入，按文件名字母序排。ID 必须全局唯一；如果冲突不会报错，但命令行会优先匹配第一个找到的。
+目录下所有 `.md` 都会被读入，按文件名字母序排。ID 必须全局唯一；如果冲突不会报错，但程序会优先匹配第一个找到的。
 
 ### 进程 crash 重启会重复发邮件吗？
 

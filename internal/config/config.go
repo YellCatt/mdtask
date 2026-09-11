@@ -66,7 +66,7 @@ archive:
   heading: 归档
   # 自动归档: -1 关闭 / 0 一标记结束就归档 / 7 截止日期 7 天前才归档
   auto: -1
-  # mdtask archive 时是否连「停滞」一起搬走
+  # 归档时是否连「停滞」一起搬走
   include_stuck: false
 
 report:
@@ -80,8 +80,8 @@ report:
   open: false
   # 弹系统通知（Windows 气泡 / Linux notify-send / macOS）
   notify: true
-  # 报告存放目录（相对 md 文件所在目录）
-  dir: .mdtask-daily
+  # 报告存放目录（相对程序运行目录；留空则用 reports）
+  dir: reports
   # 周报：周几出（1=周一 … 7=周日），0 关掉
   weekly: 1
   # 月报：每月几号出，0 关掉
@@ -116,7 +116,7 @@ func Default() *Config {
 	c.Report.Interval = 60
 	c.Report.Open = false
 	c.Report.Notify = true
-	c.Report.Dir = ".mdtask-daily"
+	c.Report.Dir = "reports"
 	c.Report.Weekly = 1
 	c.Report.Monthly = 1
 	c.Report.Yearly = "01-01"

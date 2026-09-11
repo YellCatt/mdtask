@@ -18,7 +18,7 @@ func main() {
 
 	file, configPath, noBackup, _ := splitArgs(os.Args[1:])
 
-	cfg, _, err := config.Load(configPath)
+	cfg, configPath, err := config.Load(configPath)
 	if err != nil {
 		fatal(err)
 	}
@@ -53,11 +53,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "警告: 日志初始化失败: %v\n", err)
 	}
 
+	ui.InitColor(cfg.Color)
+	st := store.NewStore(abs, cfg.Backup && !noBackup, cfg.Archive.Heading)
+
+	runDaemon(st, cfg, root, configPath)
+}
+
+func runDaemon(st *store.Store, cfg *config.Config, root, configPath string) {
 	logger.Info("MDTask 启动",
-		"dir", abs,
+		"dir", st.Dir,
 		"root", root,
 		"config_path", configPath,
-		"backup", !noBackup && cfg.Backup,
+		"backup", st.Backup,
 	)
 	logger.Debug("当前配置摘要",
 		"report_times", cfg.Report.Times,
@@ -70,9 +77,6 @@ func main() {
 		"mail_from", cfg.Mail.FromEmail,
 	)
 
-	ui.InitColor(cfg.Color)
-	st := store.NewStore(abs, cfg.Backup && !noBackup)
-
 	known, err := st.CollectKnownIDs()
 	if err != nil {
 		logger.Error("初始化 CollectKnownIDs 失败", "err", err)
@@ -80,14 +84,18 @@ func main() {
 	}
 	logger.Info("初始化完成", "known_tasks", len(known))
 
-	dumpAllReports(st, root)
+	dumpAllReports(st, cfg, root)
 
 	logger.Info("启动邮件调度 goroutine")
 	go runMailer(st, cfg)
 
-	logger.Info("进入主循环: 每 10s 扫描 tasks 目录")
+	interval := cfg.Report.Interval
+	if interval <= 0 {
+		interval = 10
+	}
+	logger.Info("进入主循环: 定时扫描任务目录", "interval_seconds", interval)
 	for {
-		time.Sleep(10 * time.Second)
+		time.Sleep(time.Duration(interval) * time.Second)
 		known, err = st.TouchAddedDates(known)
 		if err != nil {
 			logger.Error("TouchAddedDates 扫描出错", "err", err)
