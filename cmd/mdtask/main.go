@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"mdtask/internal/config"
 	"mdtask/internal/logger"
+	"mdtask/internal/status"
 	"mdtask/internal/store"
 	"mdtask/internal/ui"
 )
@@ -72,6 +75,7 @@ func runDaemon(st *store.Store, cfg *config.Config, root, configPath string) {
 		"weekly", cfg.Report.Weekly,
 		"monthly", cfg.Report.Monthly,
 		"yearly", cfg.Report.Yearly,
+		"archive_auto", cfg.Archive.Auto,
 		"mail_host", cfg.Mail.SMTPHost,
 		"mail_port", cfg.Mail.SMTPPort,
 		"mail_from", cfg.Mail.FromEmail,
@@ -84,6 +88,9 @@ func runDaemon(st *store.Store, cfg *config.Config, root, configPath string) {
 	}
 	logger.Info("初始化完成", "known_tasks", len(known))
 
+	// 启动时先归档一次，让已有的已完成任务立即归位。
+	autoArchive(st, cfg)
+
 	dumpAllReports(st, cfg, root)
 
 	logger.Info("启动邮件调度 goroutine")
@@ -93,14 +100,111 @@ func runDaemon(st *store.Store, cfg *config.Config, root, configPath string) {
 	if interval <= 0 {
 		interval = 10
 	}
+
+	// 记录任务目录指纹；之后只要指纹变化（md 被改动）就触发自动归档。
+	lastSig := dirSignature(st.Dir)
 	logger.Info("进入主循环: 定时扫描任务目录", "interval_seconds", interval)
 	for {
 		time.Sleep(time.Duration(interval) * time.Second)
+
 		known, err = st.TouchAddedDates(known)
 		if err != nil {
 			logger.Error("TouchAddedDates 扫描出错", "err", err)
 		}
+
+		sig := dirSignature(st.Dir)
+		if sig == lastSig {
+			continue
+		}
+		lastSig = sig
+		logger.Info("检测到任务文件变化，触发自动归档")
+		autoArchive(st, cfg)
+		// 归档可能改写文件，刷新指纹，避免下一轮重复触发。
+		if s2 := dirSignature(st.Dir); s2 != "" {
+			lastSig = s2
+		}
 	}
+}
+
+// autoArchive 按 archive.auto 配置自动归档：
+// -1 关闭；0 只要有任务结束就归档；N 表示截止日期早于 N 天前才归档。
+// 是否连「停滞」一起搬走由 archive.include_stuck 决定。
+func autoArchive(st *store.Store, cfg *config.Config) {
+	days := cfg.Archive.Auto
+	if v := strings.TrimSpace(os.Getenv("MDTASK_AUTO_ARCHIVE")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			days = n
+		} else {
+			days = 0
+		}
+	}
+	if days < 0 {
+		return
+	}
+
+	cutoff := time.Now()
+	if days > 0 {
+		cutoff = cutoff.AddDate(0, 0, -days)
+	}
+	includeStuck := cfg.Archive.IncludeStuck
+
+	pred := func(t store.Task) bool {
+		d := status.DefOf(t.Status)
+		if d == nil {
+			return false
+		}
+		if !d.Closed && !(includeStuck && status.IsHold(t.Status)) {
+			return false
+		}
+		if days == 0 {
+			return true
+		}
+		due, err := store.ParseDate(t.Due)
+		if err != nil {
+			return false
+		}
+		return due.Before(cutoff)
+	}
+
+	var moved int
+	if err := st.Update(func(s *store.Store) error {
+		moved = s.Archive(pred)
+		return nil
+	}); err != nil {
+		logger.Error("自动归档失败", "err", err)
+		return
+	}
+	if moved > 0 {
+		logger.Info("自动归档完成", "moved", moved)
+	}
+}
+
+// dirSignature 计算任务目录下所有 md 文件的指纹（名称+大小+修改时间），
+// 用来判断 ./tasks 下的文件是否被改动过。
+func dirSignature(dir string) string {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	names := make([]string, 0, len(ents))
+	for _, e := range ents {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, n := range names {
+		info, err := os.Stat(filepath.Join(dir, n))
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "%s|%d|%d\n", n, info.Size(), info.ModTime().UnixNano())
+	}
+	return b.String()
 }
 
 func fatal(v any) {

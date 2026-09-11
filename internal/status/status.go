@@ -77,6 +77,11 @@ func IsClosed(v string) bool {
 	return false
 }
 
+// IsHold 判断是否为「停滞」状态；按定义下标比较，不受自定义 emoji 影响。
+func IsHold(v string) bool {
+	return DefOf(v) == &defs[statusIndex["hold"]]
+}
+
 func RankOf(v string) int {
 	if strings.TrimSpace(v) == "" {
 		return 0

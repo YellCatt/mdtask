@@ -64,8 +64,8 @@ status:
 archive:
   # 归档章节的标题，程序按这个标题找第二个表格
   heading: 归档
-  # 自动归档: -1 关闭 / 0 一标记结束就归档 / 7 截止日期 7 天前才归档
-  auto: -1
+  # 自动归档: -1 关闭 / 0 一标记结束就归档（默认）/ N 截止日期 N 天前才归档
+  auto: 0
   # 归档时是否连「停滞」一起搬走
   include_stuck: false
 
@@ -110,7 +110,7 @@ mail:
 func Default() *Config {
 	c := &Config{Dir: "tasks", Backup: true, Color: "auto"}
 	c.Archive.Heading = "归档"
-	c.Archive.Auto = -1
+	c.Archive.Auto = 0
 	c.Archive.IncludeStuck = false
 	c.Report.Times = []string{"21:00", "05:00"}
 	c.Report.Interval = 60
