@@ -14,6 +14,7 @@ import (
 	"mdtask/internal/status"
 	"mdtask/internal/store"
 	"mdtask/internal/ui"
+	"mdtask/internal/util"
 )
 
 func main() {
@@ -145,7 +146,7 @@ func autoArchive(st *store.Store, cfg *config.Config) {
 		if days == 0 {
 			return true
 		}
-		due, err := store.ParseDate(t.Due)
+		due, err := util.ParseDate(t.Due)
 		if err != nil {
 			return false
 		}
