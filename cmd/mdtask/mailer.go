@@ -14,6 +14,7 @@ import (
 	"mdtask/internal/mail"
 	"mdtask/internal/report"
 	"mdtask/internal/store"
+	"mdtask/internal/util"
 )
 
 type sentTracker struct {
@@ -25,7 +26,7 @@ type sentTracker struct {
 
 func dumpAllReports(st *store.Store) {
 	logger.Info("dumpAllReports: 启动时生成四份报告")
-	today := store.Today()
+	today := util.Today()
 
 	root := "./reports"
 	if abs, err := filepath.Abs(root); err == nil {
@@ -85,7 +86,7 @@ func dumpAllReports(st *store.Store) {
 }
 
 func weekLabel(t time.Time) string {
-	monday := store.MondayOf(t)
+	monday := util.MondayOf(t)
 	sunday := monday.AddDate(0, 0, 6)
 	return monday.Format("2006-01-02") + "_" + sunday.Format("2006-01-02")
 }
@@ -105,7 +106,7 @@ func periodKey(now time.Time, freq string) string {
 	case "daily":
 		return now.Format("2006-01-02")
 	case "weekly":
-		return store.MondayOf(now).Format("2006-01-02")
+		return util.MondayOf(now).Format("2006-01-02")
 	case "monthly":
 		return now.Format("2006-01")
 	case "yearly":
@@ -129,7 +130,7 @@ func initSentTracker(cfg *config.Config, t time.Time) *sentTracker {
 		st.dailyKey = t.AddDate(0, 0, -1).Format("2006-01-02")
 	}
 
-	monday := store.MondayOf(t)
+	monday := util.MondayOf(t)
 	st.weeklyKey = monday.Format("2006-01-02")
 	if cfg.Report.Weekly > 0 {
 		wd := int(t.Weekday())
