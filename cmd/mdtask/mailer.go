@@ -23,18 +23,16 @@ type sentTracker struct {
 	yearlyKey  string
 }
 
-func dumpAllReports(st *store.Store, cfg *config.Config, baseDir string) {
+func dumpAllReports(st *store.Store) {
 	logger.Info("dumpAllReports: 启动时生成四份报告")
 	today := store.Today()
-	root := strings.TrimSpace(cfg.Report.Dir)
-	if root == "" {
-		root = "reports"
-	}
-	if !filepath.IsAbs(root) {
-		root = filepath.Join(baseDir, root)
+
+	root := "./reports"
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		logger.Error("创建报告根目录失败", "dir", root, "err", err)
+		logger.Error("创建 reports 目录失败", "dir", root, "err", err)
 		return
 	}
 
@@ -52,8 +50,7 @@ func dumpAllReports(st *store.Store, cfg *config.Config, baseDir string) {
 		body     string
 		err      error
 	}
-
-	results := []entry{}
+	var results []entry
 
 	subject, body, err := report.BuildDaily(archived, open)
 	results = append(results, entry{"daily", today.AddDate(0, 0, -1).Format("2006-01-02") + ".txt", subject, body, err})
@@ -103,7 +100,7 @@ func yearLabel(t time.Time) string {
 	return fmt.Sprintf("%d", t.Year()-1)
 }
 
-func periodKey(now time.Time, freq string, cfg *config.Config) string {
+func periodKey(now time.Time, freq string) string {
 	switch freq {
 	case "daily":
 		return now.Format("2006-01-02")
@@ -345,7 +342,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].freq < tasks[j].freq })
 
 	for _, t := range tasks {
-		currKey := periodKey(now, t.freq, cfg)
+		currKey := periodKey(now, t.freq)
 		if !t.check(currKey) {
 			continue
 		}

@@ -21,11 +21,8 @@ type Config struct {
 	} `yaml:"archive"`
 
 	Report struct {
-		Times    []string `yaml:"times"`
+		Times   []string `yaml:"times"`
 		Interval int      `yaml:"interval"`
-		Open     bool     `yaml:"open"`
-		Notify   bool     `yaml:"notify"`
-		Dir      string   `yaml:"dir"`
 		Weekly   int      `yaml:"weekly"`
 		Monthly  int      `yaml:"monthly"`
 		Yearly   string   `yaml:"yearly"`
@@ -76,12 +73,6 @@ report:
     - "05:00"
   # daemon 扫描 md 变化的间隔（秒）
   interval: 60
-  # 生成报告后用默认程序打开
-  open: false
-  # 弹系统通知（Windows 气泡 / Linux notify-send / macOS）
-  notify: true
-  # 报告存放目录（相对程序运行目录；留空则用 reports）
-  dir: reports
   # 周报：周几出（1=周一 … 7=周日），0 关掉
   weekly: 1
   # 月报：每月几号出，0 关掉
@@ -114,9 +105,6 @@ func Default() *Config {
 	c.Archive.IncludeStuck = false
 	c.Report.Times = []string{"21:00", "05:00"}
 	c.Report.Interval = 60
-	c.Report.Open = false
-	c.Report.Notify = true
-	c.Report.Dir = "reports"
 	c.Report.Weekly = 1
 	c.Report.Monthly = 1
 	c.Report.Yearly = "01-01"
@@ -230,19 +218,6 @@ func apply(c *Config, n *yamlNode) {
 			if i, ok3 := v.intVal(); ok3 && i > 0 {
 				c.Report.Interval = i
 			}
-		}
-		if v, ok2 := m.val("open"); ok2 {
-			if b, ok3 := v.bool(); ok3 {
-				c.Report.Open = b
-			}
-		}
-		if v, ok2 := m.val("notify"); ok2 {
-			if b, ok3 := v.bool(); ok3 {
-				c.Report.Notify = b
-			}
-		}
-		if v, ok2 := m.val("dir"); ok2 && v.str() != "" {
-			c.Report.Dir = v.str()
 		}
 		if v, ok2 := m.val("weekly"); ok2 {
 			if i, ok3 := v.intVal(); ok3 {

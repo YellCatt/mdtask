@@ -40,18 +40,6 @@ func main() {
 		fatal(err)
 	}
 
-	root, err := os.Getwd()
-	if err != nil || root == "" {
-		if exe, e2 := os.Executable(); e2 == nil {
-			root = filepath.Dir(exe)
-		} else {
-			root = "."
-		}
-	}
-	if rootAbs, e3 := filepath.Abs(root); e3 == nil {
-		root = rootAbs
-	}
-
 	if err := logger.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "警告: 日志初始化失败: %v\n", err)
 	}
@@ -59,13 +47,12 @@ func main() {
 	ui.InitColor(cfg.Color)
 	st := store.NewStore(abs, cfg.Backup && !noBackup, cfg.Archive.Heading)
 
-	runDaemon(st, cfg, root, configPath)
+	runDaemon(st, cfg, configPath)
 }
 
-func runDaemon(st *store.Store, cfg *config.Config, root, configPath string) {
+func runDaemon(st *store.Store, cfg *config.Config, configPath string) {
 	logger.Info("MDTask 启动",
 		"dir", st.Dir,
-		"root", root,
 		"config_path", configPath,
 		"backup", st.Backup,
 	)
@@ -88,10 +75,9 @@ func runDaemon(st *store.Store, cfg *config.Config, root, configPath string) {
 	}
 	logger.Info("初始化完成", "known_tasks", len(known))
 
-	// 启动时先归档一次，让已有的已完成任务立即归位。
 	autoArchive(st, cfg)
 
-	dumpAllReports(st, cfg, root)
+	dumpAllReports(st)
 
 	logger.Info("启动邮件调度 goroutine")
 	go runMailer(st, cfg)
