@@ -13,11 +13,9 @@ import (
 )
 
 var (
-	L *slog.Logger
+	L       *slog.Logger
 	logDir  string
-	file    *os.File
-	mu      sync.Mutex
-	curDate string
+	handler *fileHandler
 )
 
 func init() {
@@ -30,9 +28,12 @@ func Init(dir string) error {
 		return fmt.Errorf("创建日志目录 %s 失败: %w", logDir, err)
 	}
 
-	rotate()
+	handler = newFileHandler()
+	if err := handler.rotate(); err != nil {
+		fmt.Fprintf(os.Stderr, "警告: 初始日志轮转失败: %v\n", err)
+	}
 
-	fh := newFileHandler()
+	fh := slog.Handler(handler)
 	eh := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})
 
 	L = slog.New(newFanoutHandler([]slog.Handler{fh, eh}))
@@ -48,54 +49,12 @@ func Info(msg string, args ...any)  { L.Info(msg, args...) }
 func Warn(msg string, args ...any)  { L.Warn(msg, args...) }
 func Error(msg string, args ...any) { L.Error(msg, args...) }
 
-func rotate() {
-	mu.Lock()
-	defer mu.Unlock()
-
-	today := time.Now().Format("2006-01-02")
-	if file != nil && curDate == today {
-		return
-	}
-
-	path := filepath.Join(logDir, today+".log")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "打开日志文件 %s 失败: %v\n", path, err)
-		return
-	}
-	if file != nil {
-		file.Close()
-	}
-	file = f
-	curDate = today
-
-	cleanup()
-}
-
-func cleanup() {
-	entries, err := os.ReadDir(logDir)
-	if err != nil {
-		return
-	}
-	logFiles := []string{}
-	for _, e := range entries {
-		n := e.Name()
-		if strings.HasSuffix(n, ".log") {
-			logFiles = append(logFiles, filepath.Join(logDir, n))
-		}
-	}
-	sort.Strings(logFiles)
-	if len(logFiles) > 7 {
-		for _, old := range logFiles[:len(logFiles)-7] {
-			os.Remove(old)
-		}
-	}
-}
-
 func rotator() {
 	for {
 		time.Sleep(30 * time.Second)
-		rotate()
+		if handler != nil {
+			_ = handler.rotate()
+		}
 	}
 }
 
@@ -117,8 +76,6 @@ func (h *fanoutHandler) Enabled(ctx context.Context, l slog.Level) bool {
 }
 
 func (h *fanoutHandler) Handle(ctx context.Context, r slog.Record) error {
-	mu.Lock()
-	defer mu.Unlock()
 	for _, hh := range h.handlers {
 		if hh.Enabled(ctx, r.Level) {
 			if err := hh.Handle(ctx, r); err != nil {
@@ -146,7 +103,9 @@ func (h *fanoutHandler) WithGroup(name string) slog.Handler {
 }
 
 type fileHandler struct {
-	mu sync.Mutex
+	mu      sync.Mutex
+	file    *os.File
+	curDate string
 }
 
 func newFileHandler() *fileHandler { return &fileHandler{} }
@@ -156,10 +115,12 @@ func (h *fileHandler) Enabled(_ context.Context, _ slog.Level) bool { return tru
 func (h *fileHandler) Handle(_ context.Context, r slog.Record) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	mu.Lock()
-	f := file
-	mu.Unlock()
-	if f == nil {
+
+	if err := h.checkRotateLocked(); err != nil {
+		fmt.Fprintf(os.Stderr, "日志轮转失败: %v\n", err)
+	}
+
+	if h.file == nil {
 		return nil
 	}
 
@@ -179,9 +140,56 @@ func (h *fileHandler) Handle(_ context.Context, r slog.Record) error {
 		return true
 	})
 	b.WriteString("\n")
-	_, err := f.WriteString(b.String())
+	_, err := h.file.WriteString(b.String())
 	return err
 }
 
 func (h *fileHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
 func (h *fileHandler) WithGroup(_ string) slog.Handler      { return h }
+
+func (h *fileHandler) rotate() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.checkRotateLocked()
+}
+
+func (h *fileHandler) checkRotateLocked() error {
+	today := time.Now().Format("2006-01-02")
+	if h.file != nil && h.curDate == today {
+		return nil
+	}
+
+	path := filepath.Join(logDir, today+".log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("打开日志文件 %s 失败: %w", path, err)
+	}
+	if h.file != nil {
+		h.file.Close()
+	}
+	h.file = f
+	h.curDate = today
+
+	cleanup()
+	return nil
+}
+
+func cleanup() {
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		return
+	}
+	logFiles := []string{}
+	for _, e := range entries {
+		n := e.Name()
+		if strings.HasSuffix(n, ".log") {
+			logFiles = append(logFiles, filepath.Join(logDir, n))
+		}
+	}
+	sort.Strings(logFiles)
+	if len(logFiles) > 7 {
+		for _, old := range logFiles[:len(logFiles)-7] {
+			os.Remove(old)
+		}
+	}
+}
