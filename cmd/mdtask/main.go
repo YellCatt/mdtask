@@ -49,7 +49,7 @@ func main() {
 		root = rootAbs
 	}
 
-	if err := logger.Init(root); err != nil {
+	if err := logger.Init(); err != nil {
 		fmt.Fprintf(os.Stderr, "警告: 日志初始化失败: %v\n", err)
 	}
 

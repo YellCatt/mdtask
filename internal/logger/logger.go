@@ -22,8 +22,11 @@ func init() {
 	L = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
-func Init(dir string) error {
-	logDir = filepath.Join(dir, "logs")
+func Init() error {
+	logDir = "./logs"
+	if abs, err := filepath.Abs(logDir); err == nil {
+		logDir = abs
+	}
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("创建日志目录 %s 失败: %w", logDir, err)
 	}
