@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"mdtask/internal/store"
+	"mdtask/internal/util"
 )
 
 const (
@@ -121,11 +122,11 @@ func DueColor(t store.Task) string {
 	if t.Closed() {
 		return ""
 	}
-	d, err := store.ParseDate(t.Due)
+	d, err := util.ParseDate(t.Due)
 	if err != nil {
 		return ""
 	}
-	today := store.Today()
+	today := util.Today()
 	switch {
 	case d.Before(today):
 		return cRed
@@ -143,11 +144,11 @@ func DueText(t store.Task) string {
 	if t.Closed() {
 		return t.Due
 	}
-	d, err := store.ParseDate(t.Due)
+	d, err := util.ParseDate(t.Due)
 	if err != nil {
 		return t.Due
 	}
-	today := store.Today()
+	today := util.Today()
 	if d.Before(today) {
 		diff := int(today.Sub(d).Hours() / 24)
 		return fmt.Sprintf("%s 逾期 %d 天", t.Due, diff)

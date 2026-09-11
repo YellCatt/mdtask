@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"mdtask/internal/store"
+	"mdtask/internal/util"
 )
 
 const (
@@ -20,7 +21,7 @@ var prioOrder = []string{"P0", "P1", "P2", "P3", "P4"}
 func sortByPrio(ts []store.Task) []store.Task {
 	out := append([]store.Task(nil), ts...)
 	sort.SliceStable(out, func(i, j int) bool {
-		ri, rj := store.PriorityRank(out[i].Priority), store.PriorityRank(out[j].Priority)
+		ri, rj := util.PriorityRank(out[i].Priority), util.PriorityRank(out[j].Priority)
 		if ri != rj {
 			return ri > rj
 		}

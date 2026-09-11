@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mdtask/internal/logger"
+	"mdtask/internal/util"
 )
 
 var ErrNotFound = errors.New("任务不存在")
@@ -291,7 +292,7 @@ func (s *Store) Update(fn func(st *Store) error) error {
 
 func (s *Store) Archive(pred func(Task) bool) int {
 	total := 0
-	today := Today().Format("2006-01-02")
+	today := util.Today().Format("2006-01-02")
 	for _, f := range s.files {
 		if f.main == nil {
 			continue
@@ -446,7 +447,7 @@ func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) 
 	if err := s.Load(); err != nil {
 		return known, err
 	}
-	today := Today().Format("2006-01-02")
+	today := util.Today().Format("2006-01-02")
 	newCount := 0
 	for _, f := range s.files {
 		if f.main != nil {

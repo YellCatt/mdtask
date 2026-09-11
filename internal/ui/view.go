@@ -7,6 +7,7 @@ import (
 
 	"mdtask/internal/status"
 	"mdtask/internal/store"
+	"mdtask/internal/util"
 )
 
 func PrintTable(tasks []store.Task, summary bool) {
@@ -135,7 +136,7 @@ func SortTasks(tasks []store.Task) {
 		if a != b {
 			return a < b
 		}
-		if ra, rb := store.PriorityRank(tasks[i].Priority), store.PriorityRank(tasks[j].Priority); ra != rb {
+		if ra, rb := util.PriorityRank(tasks[i].Priority), util.PriorityRank(tasks[j].Priority); ra != rb {
 			return ra > rb
 		}
 		return dueKey(tasks[i].Due) < dueKey(tasks[j].Due)

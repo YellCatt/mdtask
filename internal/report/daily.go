@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"mdtask/internal/store"
+	"mdtask/internal/util"
 )
 
 func BuildDaily(archived, open []store.Task) (subject string, body string, err error) {
@@ -29,7 +30,7 @@ func BuildDaily(archived, open []store.Task) (subject string, body string, err e
 func BuildWeekly(archived, open []store.Task) (subject string, body string, err error) {
 	today := store.Today()
 
-	monday := store.MondayOf(today)
+	monday := util.MondayOf(today)
 	lastMonday := monday.AddDate(0, 0, -7)
 	lastSunday := monday.AddDate(0, 0, -1)
 
