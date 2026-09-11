@@ -61,14 +61,30 @@ func main() {
 		fatal(err)
 	}
 
+	// 程序运行根目录：logs/ 和 reports/ 都建在这里，而不是任务 md 目录。
+	// 优先用进程工作目录（startup.sh 会先 cd 到程序目录再启动，此时二者相同）；
+	// 取不到再回退到可执行文件所在目录，最后兜底为当前目录。
+	root, err := os.Getwd()
+	if err != nil || root == "" {
+		if exe, e2 := os.Executable(); e2 == nil {
+			root = filepath.Dir(exe)
+		} else {
+			root = "."
+		}
+	}
+	if rootAbs, e3 := filepath.Abs(root); e3 == nil {
+		root = rootAbs
+	}
+
 	// 初始化日志：同时输出到 stderr (Error 以上) 和文件 (Debug 以上)。
 	// Init 失败不致命，降级为只在 stderr 输出 Error 级别。
-	if err := logger.Init(abs); err != nil {
+	if err := logger.Init(root); err != nil {
 		fmt.Fprintf(os.Stderr, "警告: 日志初始化失败: %v\n", err)
 	}
 
 	logger.Info("MDTask 启动",
 		"dir", abs,
+		"root", root,
 		"config_path", configPath,
 		"backup", !noBackup && cfg.Backup,
 	)
@@ -101,7 +117,8 @@ func main() {
 
 	// 启动时立即生成一次四周期报告到磁盘（不管时间对不对）。
 	// 这让用户刚启动就能看到报告文件，也方便调试报告格式。
-	dumpAllReports(st, abs)
+	// 报告写到程序运行根目录下的 reports/，和 logs/ 同级。
+	dumpAllReports(st, root)
 
 	// 邮件调度 goroutine：独立于主循环运行，按配置的 times 发送邮件。
 	logger.Info("启动邮件调度 goroutine")
@@ -142,6 +159,7 @@ type sentTracker struct {
 }
 
 // dumpAllReports 启动时一次性生成四周期报告，写入 baseDir/reports/{daily,week,month,year}/ 目录。
+// baseDir 传的是程序运行根目录（和 logs/ 同级），不是任务 md 目录。
 //
 // 文件名规则：
 //   - daily/2026-09-09.txt   （日报报告的是「昨天」的完成情况，所以用昨日日期）
