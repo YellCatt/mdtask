@@ -17,6 +17,8 @@ import (
 func CmdReport(st *store.Store, cfg *config.Config, args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	typeStr := fs.String("type", "daily", "报告类型: daily/weekly/monthly/yearly")
+	_ = fs.String("date", "", "参考日期 YYYY-MM-DD（兼容旧版，报告内容仍用 store 包自动计算）")
+	_ = fs.Bool("last", false, "统计上一个周期（兼容旧版）")
 	output := fs.String("o", "", "输出文件路径（可选，默认不写文件）")
 	open := fs.Bool("open", cfg.Report.Open, "生成后用默认程序打开报告")
 	noNotify := fs.Bool("no-notify", !cfg.Report.Notify, "不弹系统通知")
@@ -39,13 +41,16 @@ func CmdReport(st *store.Store, cfg *config.Config, args []string) error {
 	var subject, body string
 	switch kind {
 	case kDaily:
-		subject, body, _ = report.BuildDaily(arch, tasks)
+		subject, body, err = report.BuildDaily(arch, tasks)
 	case kWeekly:
-		subject, body, _ = report.BuildWeekly(arch, tasks)
+		subject, body, err = report.BuildWeekly(arch, tasks)
 	case kMonthly:
-		subject, body, _ = report.BuildMonthly(arch, tasks)
+		subject, body, err = report.BuildMonthly(arch, tasks)
 	case kYearly:
-		subject, body, _ = report.BuildYearly(arch, tasks)
+		subject, body, err = report.BuildYearly(arch, tasks)
+	}
+	if err != nil {
+		return fmt.Errorf("生成报告失败: %w", err)
 	}
 
 	fmt.Print(subject, "\n\n", body, "\n")
