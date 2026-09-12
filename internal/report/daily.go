@@ -5,11 +5,13 @@ import (
 	"strings"
 	"time"
 
+	"mdtask/internal/logger"
 	"mdtask/internal/store"
 	"mdtask/internal/util"
 )
 
 func BuildDaily(archived, open []store.Task) (subject string, body string, err error) {
+	logger.Debug("BuildDaily 开始", "archived", len(archived), "open", len(open))
 	today := util.Today()
 	yesterday := today.AddDate(0, 0, -1)
 	yesterdayStr := yesterday.Format("2006-01-02")
@@ -28,6 +30,7 @@ func BuildDaily(archived, open []store.Task) (subject string, body string, err e
 }
 
 func BuildWeekly(archived, open []store.Task) (subject string, body string, err error) {
+	logger.Debug("BuildWeekly 开始", "archived", len(archived), "open", len(open))
 	today := util.Today()
 
 	monday := util.MondayOf(today)
@@ -51,6 +54,7 @@ func BuildWeekly(archived, open []store.Task) (subject string, body string, err 
 }
 
 func BuildMonthly(archived, open []store.Task) (subject string, body string, err error) {
+	logger.Debug("BuildMonthly 开始", "archived", len(archived), "open", len(open))
 	today := util.Today()
 	firstOfThisMonth := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
 	firstOfLastMonth := firstOfThisMonth.AddDate(0, -1, 0)
@@ -88,6 +92,7 @@ func BuildMonthly(archived, open []store.Task) (subject string, body string, err
 }
 
 func BuildYearly(archived, open []store.Task) (subject string, body string, err error) {
+	logger.Debug("BuildYearly 开始", "archived", len(archived), "open", len(open))
 	today := util.Today()
 	lastYear := today.Year() - 1
 	start := time.Date(lastYear, 1, 1, 0, 0, 0, 0, today.Location())

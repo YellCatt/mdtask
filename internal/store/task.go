@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mdtask/internal/logger"
 	"mdtask/internal/status"
 )
 
@@ -100,6 +101,7 @@ type tbl struct {
 
 // parse 解析表头和数据行；补齐缺失的标准列、给空 ID 编号，返回文件是否需要重写
 func (tb *tbl) parse(lines []string) (dirty bool) {
+	logger.Debug("tbl.parse 开始", "start", tb.start, "end", tb.end, "total_lines", len(lines))
 	seen := map[string]bool{}
 	for _, c := range splitRow(lines[tb.start]) {
 		c = strings.TrimSpace(c)
@@ -152,13 +154,16 @@ func (tb *tbl) parse(lines []string) (dirty bool) {
 			used[s] = true
 		}
 	}
+	var fixed int
 	for i := range tb.tasks {
 		if strings.TrimSpace(tb.tasks[i].ID) == "" {
 			tb.tasks[i].ID = nextFreeID(used)
 			used[tb.tasks[i].ID] = true
 			dirty = true
+			fixed++
 		}
 	}
+	logger.Debug("tbl.parse 完成", "columns", len(tb.Columns), "tasks", len(tb.tasks), "fixed_ids", fixed, "dirty", dirty)
 	return dirty
 }
 

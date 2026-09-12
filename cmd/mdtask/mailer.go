@@ -200,6 +200,7 @@ func reportClocks(cfg *config.Config) []clock {
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].h*60+out[i].m < out[j].h*60+out[j].m })
+	logger.Debug("reportClocks 解析完成", "count", len(out), "clocks", out)
 	return out
 }
 
@@ -226,6 +227,7 @@ func nextReportTime(cfg *config.Config, from time.Time) time.Time {
 	if best.IsZero() {
 		best = from.Add(24 * time.Hour)
 	}
+	logger.Debug("nextReportTime 计算完成", "from", from.Format(time.RFC3339), "next", best.Format(time.RFC3339))
 	return best
 }
 

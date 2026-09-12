@@ -1,6 +1,10 @@
 package store
 
-import "strings"
+import (
+	"strings"
+
+	"mdtask/internal/logger"
+)
 
 // ---------- 扫描 md ----------
 
@@ -52,8 +56,10 @@ func locateTableFrom(lines []string, from int) (int, int) {
 		for end < len(lines) && isTableRow(lines[end]) {
 			end++
 		}
+		logger.Debug("locateTableFrom 找到表格", "from", from, "start", i, "end", end)
 		return i, end
 	}
+	logger.Debug("locateTableFrom 未找到表格", "from", from)
 	return -1, -1
 }
 
@@ -67,9 +73,11 @@ func findHeadingFrom(lines []string, title string, from int) int {
 		}
 		h := strings.ToLower(strings.TrimSpace(strings.TrimLeft(l, "#")))
 		if h == want {
+			logger.Debug("findHeadingFrom 找到标题", "title", title, "pos", i)
 			return i
 		}
 	}
+	logger.Debug("findHeadingFrom 未找到标题", "title", title, "from", from)
 	return -1
 }
 
