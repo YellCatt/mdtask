@@ -348,9 +348,13 @@ func (s *Store) AddTask(t Task) error {
 		return errors.New("没有可用的任务文件")
 	}
 	t.Source = s.primary.Path
+	if strings.TrimSpace(t.Added) == "" {
+		t.Added = util.Today().Format("2006-01-02")
+		logger.Debug("AddTask 自动补填添加日期", "task_id", t.ID, "title", t.Title, "added", t.Added)
+	}
 	s.primary.main.tasks = append(s.primary.main.tasks, t)
 	s.primary.dirty = true
-	logger.Debug("AddTask 添加任务", "id", t.ID, "title", t.Title, "status", t.Status, "file", s.primary.Name)
+	logger.Debug("AddTask 添加任务", "id", t.ID, "title", t.Title, "status", t.Status, "added", t.Added, "file", s.primary.Name)
 	return nil
 }
 
@@ -510,6 +514,7 @@ func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) 
 						t.Added = today
 						f.dirty = true
 						newCount++
+						logger.Debug("TouchAddedDates 归档表补填添加日期", "task_id", t.ID, "title", t.Title, "added", today, "file", f.Name)
 					}
 					known[t.ID] = true
 				}
