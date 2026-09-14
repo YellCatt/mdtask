@@ -475,8 +475,10 @@ func (s *Store) NextID() string {
 	return strconv.Itoa(max + 1)
 }
 
-// TouchAddedDates 给「已知 ID 中尚未填添加日期」的任务补上今天，并把新 ID 并入 known；
-// 用于 daemon 定时扫描时为新任务打上添加时间。
+// TouchAddedDates 给「还没有添加日期」的任务（ID 不为空且 Added 为空）补上今天；
+// known 由 CollectKnownIDs 初始化为「已有添加日期的 ID 集合」，因此这里只会命中
+// 启动时尚缺添加日期的存量任务，以及进程运行期间新增的任务。命中后把该 ID 并入 known。
+// 用于 daemon 定时扫描时自动打上添加时间。
 func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -529,25 +531,28 @@ func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) 
 	return known, nil
 }
 
-// CollectKnownIDs 收集当前所有任务 ID，供 daemon 初始化时建立已知集合。
+// CollectKnownIDs 收集「当前已有添加日期」的任务 ID，供 daemon 初始化时建立 known 集合；
+// 注意只收录已填添加日期的 ID，未填的留待 TouchAddedDates 在扫描时补填。
 func (s *Store) CollectKnownIDs() (map[string]bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.Load(); err != nil {
 		return nil, err
 	}
+	// 只把「已经有添加日期」的 ID 记入 known；这样那些启动时
+	// 还没有添加日期的存量任务（以及后续新增的任务）会在扫描时补填。
 	known := map[string]bool{}
 	for _, f := range s.files {
 		if f.main != nil {
 			for _, t := range f.main.tasks {
-				if t.ID != "" {
+				if t.ID != "" && t.Added != "" {
 					known[t.ID] = true
 				}
 			}
 		}
 		if f.arch != nil {
 			for _, t := range f.arch.tasks {
-				if t.ID != "" {
+				if t.ID != "" && t.Added != "" {
 					known[t.ID] = true
 				}
 			}
