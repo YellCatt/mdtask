@@ -293,13 +293,16 @@ func (s *Store) Update(fn func(st *Store) error) error {
 	if err := fn(s); err != nil {
 		return err
 	}
+	var dirtyFiles int
 	for _, f := range s.files {
 		if f.dirty {
+			dirtyFiles++
 			if err := s.flushFile(f); err != nil {
 				return err
 			}
 		}
 	}
+	logger.Debug("Update 完成", "dirty_files", dirtyFiles)
 	return nil
 }
 
@@ -347,11 +350,13 @@ func (s *Store) AddTask(t Task) error {
 	t.Source = s.primary.Path
 	s.primary.main.tasks = append(s.primary.main.tasks, t)
 	s.primary.dirty = true
+	logger.Debug("AddTask 添加任务", "id", t.ID, "title", t.Title, "status", t.Status, "file", s.primary.Name)
 	return nil
 }
 
 // UpdateTask 找到指定 ID 的任务并就地修改，找不到返回 ErrNotFound。
 func (s *Store) UpdateTask(id string, fn func(*Task) error) error {
+	logger.Debug("UpdateTask 开始", "id", id)
 	for _, f := range s.files {
 		for i := range f.main.tasks {
 			if f.main.tasks[i].ID == id {
@@ -360,38 +365,46 @@ func (s *Store) UpdateTask(id string, fn func(*Task) error) error {
 				}
 				f.main.tasks[i].Source = f.Path
 				f.dirty = true
+				logger.Debug("UpdateTask 更新成功", "id", id, "file", f.Name)
 				return nil
 			}
 		}
 	}
+	logger.Debug("UpdateTask 未找到任务", "id", id)
 	return ErrNotFound
 }
 
 // SetTaskStatus 直接改某条任务的状态列。
 func (s *Store) SetTaskStatus(id, status string) error {
+	logger.Debug("SetTaskStatus 开始", "id", id, "target_status", status)
 	for _, f := range s.files {
 		for i := range f.main.tasks {
 			if f.main.tasks[i].ID == id {
 				f.main.tasks[i].Status = status
 				f.dirty = true
+				logger.Debug("SetTaskStatus 更新成功", "id", id, "status", status, "file", f.Name)
 				return nil
 			}
 		}
 	}
+	logger.Debug("SetTaskStatus 未找到任务", "id", id)
 	return ErrNotFound
 }
 
 // RemoveTask 从主表删除指定 ID 的任务。
 func (s *Store) RemoveTask(id string) error {
+	logger.Debug("RemoveTask 开始", "id", id)
 	for _, f := range s.files {
 		for i := range f.main.tasks {
 			if f.main.tasks[i].ID == id {
 				f.main.tasks = append(f.main.tasks[:i], f.main.tasks[i+1:]...)
 				f.dirty = true
+				logger.Debug("RemoveTask 删除成功", "id", id, "file", f.Name)
 				return nil
 			}
 		}
 	}
+	logger.Debug("RemoveTask 未找到任务", "id", id)
 	return ErrNotFound
 }
 
@@ -458,6 +471,7 @@ func (s *Store) NextID() string {
 			scan(f.arch.tasks)
 		}
 	}
+	logger.Debug("NextID 计算完成", "max", max, "next", max+1)
 	return strconv.Itoa(max + 1)
 }
 

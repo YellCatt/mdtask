@@ -6,12 +6,14 @@ import (
 	"strings"
 	"time"
 
+	"mdtask/internal/logger"
 	"mdtask/internal/store"
 	"mdtask/internal/util"
 )
 
 // BuildDaily 生成日报：统计「昨天」完成的任务 + 当前待办中优先级最高的前 5 项。
 func BuildDaily(archived, open []store.Task) (subject string, body string, err error) {
+	logger.Debug("BuildDaily 开始", "archived", len(archived), "open", len(open))
 	today := util.Today()
 	yesterday := today.AddDate(0, 0, -1)
 	yesterdayStr := yesterday.Format("2006-01-02")
@@ -31,6 +33,7 @@ func BuildDaily(archived, open []store.Task) (subject string, body string, err e
 
 // BuildWeekly 生成周报：统计「上周一~上周日」完成的任务 + 待办前 10 项。
 func BuildWeekly(archived, open []store.Task) (subject string, body string, err error) {
+	logger.Debug("BuildWeekly 开始", "archived", len(archived), "open", len(open))
 	today := util.Today()
 
 	monday := util.MondayOf(today)
@@ -55,6 +58,7 @@ func BuildWeekly(archived, open []store.Task) (subject string, body string, err 
 
 // BuildMonthly 生成月报：统计「上月」完成的任务（含按优先级/分布统计）+ 待办前 10 项。
 func BuildMonthly(archived, open []store.Task) (subject string, body string, err error) {
+	logger.Debug("BuildMonthly 开始", "archived", len(archived), "open", len(open))
 	today := util.Today()
 	firstOfThisMonth := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
 	firstOfLastMonth := firstOfThisMonth.AddDate(0, -1, 0)
@@ -93,6 +97,7 @@ func BuildMonthly(archived, open []store.Task) (subject string, body string, err
 
 // BuildYearly 生成年报：统计「去年全年」完成的任务（按优先级与月份分布）+ 待办前 10 项。
 func BuildYearly(archived, open []store.Task) (subject string, body string, err error) {
+	logger.Debug("BuildYearly 开始", "archived", len(archived), "open", len(open))
 	today := util.Today()
 	lastYear := today.Year() - 1
 	start := time.Date(lastYear, 1, 1, 0, 0, 0, 0, today.Location())
