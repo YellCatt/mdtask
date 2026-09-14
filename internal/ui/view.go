@@ -1,3 +1,4 @@
+// Package ui 的任务列表展示与若干任务辅助函数（与 ui.go 同包）。
 package ui
 
 import (
@@ -10,6 +11,7 @@ import (
 	"mdtask/internal/util"
 )
 
+// PrintTable 把任务以对齐的彩色表格打印到终端；summary 为 true 时末尾再打印状态统计。
 func PrintTable(tasks []store.Task, summary bool) {
 	if len(tasks) == 0 {
 		fmt.Println(paint(cDim, "（没有任务）"))
@@ -95,10 +97,12 @@ func PrintTable(tasks []store.Task, summary bool) {
 
 // ---------- 辅助 ----------
 
+// oneLine 把任务里的换行/回车换成空格，便于在单行表格单元格里展示。
 func oneLine(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "\r", " "), "\n", " ")
 }
 
+// AllText 把一条任务拼成可搜索的纯文本（含标题/状态/优先级/备注与 Extra），用于全文检索。
 func AllText(t store.Task) string {
 	var b strings.Builder
 	b.WriteString(t.ID + " " + t.Title + " " + t.Status + " " + t.Priority + " " + t.Due + " " + t.Note)
@@ -108,6 +112,7 @@ func AllText(t store.Task) string {
 	return b.String()
 }
 
+// SortedExtra 把 Extra map 按 key 排序成二维数组，便于稳定顺序地遍历/展示。
 func SortedExtra(m map[string]string) [][2]string {
 	if len(m) == 0 {
 		return nil
@@ -120,6 +125,7 @@ func SortedExtra(m map[string]string) [][2]string {
 	return out
 }
 
+// FilterTasks 按谓词 f 过滤任务，返回新切片。
 func FilterTasks(tasks []store.Task, f func(store.Task) bool) []store.Task {
 	out := make([]store.Task, 0, len(tasks))
 	for _, t := range tasks {
@@ -130,6 +136,7 @@ func FilterTasks(tasks []store.Task, f func(store.Task) bool) []store.Task {
 	return out
 }
 
+// SortTasks 就地排序：先按状态权重（未结束优先），再按优先级降序，最后按截止日期升序（空日期排最后）。
 func SortTasks(tasks []store.Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
 		a, b := status.RankOf(tasks[i].Status), status.RankOf(tasks[j].Status)
@@ -143,6 +150,7 @@ func SortTasks(tasks []store.Task) {
 	})
 }
 
+// prioLabel 把优先级规范成大写 P0~P4，无法识别返回空串（表示不展示）。
 func prioLabel(p string) string {
 	switch strings.ToLower(strings.TrimSpace(p)) {
 	case "p0", "p1", "p2", "p3", "p4":
@@ -152,6 +160,7 @@ func prioLabel(p string) string {
 	}
 }
 
+// dueKey 返回用于排序的日期 key；空日期用极大值占尾，保证「无截止日」排到最后。
 func dueKey(v string) string {
 	if strings.TrimSpace(v) == "" {
 		return "9999-99-99"
@@ -159,6 +168,7 @@ func dueKey(v string) string {
 	return v
 }
 
+// FindTask 按 ID 在任务切片里查找，找到返回任务与 true。
 func FindTask(tasks []store.Task, id string) (store.Task, bool) {
 	for _, t := range tasks {
 		if t.ID == id {
@@ -168,6 +178,7 @@ func FindTask(tasks []store.Task, id string) (store.Task, bool) {
 	return store.Task{}, false
 }
 
+// statusColor 根据状态返回展示用的颜色（已结束灰，进行中蓝，停滞黄，其它无色）。
 func statusColor(s string) string {
 	if status.IsClosed(s) {
 		return cGray

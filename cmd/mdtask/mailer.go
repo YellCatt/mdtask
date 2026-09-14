@@ -1,3 +1,5 @@
+// Command mailer（mdtask 守护进程的一部分）负责按配置时间点生成并发送
+// 日报、周报、月报、年报，同时也支持把报告 dump 到本地 ./reports 目录。
 package main
 
 import (
@@ -24,6 +26,7 @@ type sentTracker struct {
 	yearlyKey  string
 }
 
+// dumpAllReports 启动期把四份报告一次性生成并写入 ./reports/<daily|week|month|year>/ 目录，便于调试。
 func dumpAllReports(st *store.Store) {
 	logger.Info("dumpAllReports: 启动时生成四份报告")
 	today := util.Today()
@@ -85,22 +88,26 @@ func dumpAllReports(st *store.Store) {
 	}
 }
 
+// weekLabel 由某时间算出「周一_周日」的报告文件名标签。
 func weekLabel(t time.Time) string {
 	monday := util.MondayOf(t)
 	sunday := monday.AddDate(0, 0, 6)
 	return monday.Format("2006-01-02") + "_" + sunday.Format("2006-01-02")
 }
 
+// monthLabel 由某时间算出「YYYY-MM」的月报文件名标签（取上月）。
 func monthLabel(t time.Time) string {
 	firstOfThisMonth := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
 	lastOfLastMonth := firstOfThisMonth.AddDate(0, 0, -1)
 	return lastOfLastMonth.Format("2006-01")
 }
 
+// yearLabel 由某时间算出「去年年份」的年报文件名标签。
 func yearLabel(t time.Time) string {
 	return fmt.Sprintf("%d", t.Year()-1)
 }
 
+// periodKey 计算某频率（daily/weekly/monthly/yearly）在 now 时刻对应的「周期键」，用于判断本周期是否已发送。
 func periodKey(now time.Time, freq string) string {
 	switch freq {
 	case "daily":
@@ -115,6 +122,7 @@ func periodKey(now time.Time, freq string) string {
 	return ""
 }
 
+// initSentTracker 初始化「本周期是否已发送」的标记：先算今天最早触发点，再结合配置推算各周期当前键。
 func initSentTracker(cfg *config.Config, t time.Time) *sentTracker {
 	st := &sentTracker{}
 
@@ -179,6 +187,7 @@ func initSentTracker(cfg *config.Config, t time.Time) *sentTracker {
 type clock struct{ h, m int }
 
 // reportClocks 解析配置里所有触发时间点，去重并按时间先后排序。
+// reportClocks 把配置中的时间点解析去重并排序，返回当天的所有发送时刻。
 func reportClocks(cfg *config.Config) []clock {
 	var out []clock
 	seen := map[clock]bool{}
@@ -204,6 +213,7 @@ func reportClocks(cfg *config.Config) []clock {
 }
 
 // reportHourMin 返回当天最早的时间点，用于判断“今天的报告是否已过触发时刻”。
+// reportHourMin 返回配置里最早的发送时刻（无配置时回退到 05:00），用于判断「今天是否已过触发点」。
 func reportHourMin(cfg *config.Config) (int, int) {
 	if cs := reportClocks(cfg); len(cs) > 0 {
 		return cs[0].h, cs[0].m
@@ -212,6 +222,7 @@ func reportHourMin(cfg *config.Config) (int, int) {
 }
 
 // nextReportTime 返回所有配置时间点中，严格晚于 from 的最近一个时刻。
+// nextReportTime 返回所有配置时刻中严格晚于 from 的最近一个时刻；当天没有则顺延到次日。
 func nextReportTime(cfg *config.Config, from time.Time) time.Time {
 	var best time.Time
 	for _, c := range reportClocks(cfg) {
@@ -229,6 +240,7 @@ func nextReportTime(cfg *config.Config, from time.Time) time.Time {
 	return best
 }
 
+// runMailer 邮件调度主循环：反复睡到下一个发送时刻，到点调用 sendAllReports 发送到期报告。
 func runMailer(st *store.Store, cfg *config.Config) {
 	tracker := initSentTracker(cfg, time.Now())
 	for {
@@ -247,6 +259,7 @@ func runMailer(st *store.Store, cfg *config.Config) {
 	}
 }
 
+// sendAllReports 对日/周/月/年四种报告逐一检查「是否到了触发条件且本周期未发过」，满足则生成并发送邮件。
 func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, now time.Time) {
 	logger.Debug("sendAllReports 开始", "now", now.Format(time.RFC3339))
 

@@ -1,3 +1,5 @@
+// Package logger 是基于 slog 的日志封装：日志同时写入「按天切分+保留 7 天」的
+// 本地文件与 stderr，并对外提供 Debug/Info/Warn/Error 快捷函数。
 package logger
 
 import (
@@ -22,6 +24,7 @@ func init() {
 	L = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
+// Init 创建 logs 目录、初始化按天轮转的文件 handler，并启动后台轮转 goroutine。
 func Init() error {
 	logDir = "./logs"
 	if abs, err := filepath.Abs(logDir); err == nil {
@@ -52,6 +55,7 @@ func Info(msg string, args ...any)  { L.Info(msg, args...) }
 func Warn(msg string, args ...any)  { L.Warn(msg, args...) }
 func Error(msg string, args ...any) { L.Error(msg, args...) }
 
+// rotator 每 30 秒尝试一次轮转，跨天后会自动切到新的日期日志文件。
 func rotator() {
 	for {
 		time.Sleep(30 * time.Second)
@@ -61,6 +65,7 @@ func rotator() {
 	}
 }
 
+// fanoutHandler 把同一条日志广播给多个底层 handler（文件 + stderr）。
 type fanoutHandler struct {
 	handlers []slog.Handler
 }
@@ -105,6 +110,7 @@ func (h *fanoutHandler) WithGroup(name string) slog.Handler {
 	return &fanoutHandler{handlers: handlers}
 }
 
+// fileHandler 把日志按「日期.log」追加写入文件，并在跨天或启动时自动切换文件。
 type fileHandler struct {
 	mu      sync.Mutex
 	file    *os.File
@@ -156,6 +162,8 @@ func (h *fileHandler) rotate() error {
 	return h.checkRotateLocked()
 }
 
+// checkRotateLocked 若日期变化或文件未打开则重新打开当日日志文件，并清理旧日志。
+// 调用方需持有 h.mu。
 func (h *fileHandler) checkRotateLocked() error {
 	today := time.Now().Format("2006-01-02")
 	if h.file != nil && h.curDate == today {
@@ -177,6 +185,7 @@ func (h *fileHandler) checkRotateLocked() error {
 	return nil
 }
 
+// cleanup 只保留最近 7 个 .log 文件，删除更早的，避免日志无限增长。
 func cleanup() {
 	entries, err := os.ReadDir(logDir)
 	if err != nil {

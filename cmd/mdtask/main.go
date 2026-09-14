@@ -1,3 +1,5 @@
+// Command mdtask 是任务管理的守护进程入口：定时扫描 md 任务文件、自动归档，
+// 并启动邮件调度协程按配置时间点生成/发送日报、周报、月报、年报。
 package main
 
 import (
@@ -51,6 +53,7 @@ func main() {
 	runDaemon(st, cfg, configPath)
 }
 
+// runDaemon 初始化已知任务集合、先跑一次归档与报告 dump，再进入「定时扫描 + 变化时归档」主循环。
 func runDaemon(st *store.Store, cfg *config.Config, configPath string) {
 	logger.Info("MDTask 启动",
 		"dir", st.Dir,
@@ -194,12 +197,14 @@ func dirSignature(dir string) string {
 	return b.String()
 }
 
+// fatal 记录错误并直接退出进程（用于启动期不可恢复的失败）。
 func fatal(v any) {
 	logger.Error("fatal 退出", "err", v)
 	fmt.Fprintln(os.Stderr, "错误:", v)
 	os.Exit(1)
 }
 
+// splitArgs 解析命令行参数：-file/-config/-no-backup 及其等号形式，其余原样返回到 rest。
 func splitArgs(args []string) (file, config string, noBackup bool, rest []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]

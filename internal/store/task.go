@@ -180,6 +180,7 @@ func (tb *tbl) render() []string {
 	return rows
 }
 
+// nextFreeID 从 1 开始找第一个未被占用的数字 ID，用于补全缺失 ID。
 func nextFreeID(used map[string]bool) string {
 	for i := 1; ; i++ {
 		id := strconv.Itoa(i)
@@ -189,6 +190,7 @@ func nextFreeID(used map[string]bool) string {
 	}
 }
 
+// cloneTasks 深拷贝任务切片（含 Extra map），避免对外暴露内部可变引用。
 func cloneTasks(ts []Task) []Task {
 	out := make([]Task, 0, len(ts))
 	for _, t := range ts {
@@ -204,6 +206,7 @@ func cloneTasks(ts []Task) []Task {
 	return out
 }
 
+// Closed 表示该任务是否已处于结束状态（完成或取消）。
 func (t *Task) Closed() bool {
 	return status.IsClosed(t.Status)
 }

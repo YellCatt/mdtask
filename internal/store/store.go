@@ -1,3 +1,5 @@
+// Package store 负责把 .md 里的 markdown 表格读成任务对象、提供增删改查与归档，
+// 并把改动原子地写回文件。Store 是上层（daemon / mailer）的统一入口。
 package store
 
 import (
@@ -16,6 +18,7 @@ import (
 
 var ErrNotFound = errors.New("任务不存在")
 
+// 任务表的标准列名（中文），解析/渲染表格时以此为基准，缺失的列会自动补齐。
 const (
 	FID       = "ID"
 	FTitle    = "标题"
@@ -29,6 +32,7 @@ const (
 
 var stdColumns = []string{FStatus, FID, FTitle, FPriority, FDue, FNote, FAdded}
 
+// fieldAliases 把各种中英文列名（如 id/编号/标题/title）归一为上面的标准列名。
 var fieldAliases = map[string]string{
 	"id": FID, "编号": FID, "序号": FID, "no": FID,
 	"标题": FTitle, "title": FTitle, "任务": FTitle, "名称": FTitle, "name": FTitle, "内容": FTitle,
@@ -40,12 +44,14 @@ var fieldAliases = map[string]string{
 	"完成时间": FDoneAt, "完成": FDoneAt, "doneat": FDoneAt, "done_at": FDoneAt, "finished": FDoneAt, "完成日期": FDoneAt,
 }
 
+// norm 把列名转小写、去空格与常见分隔符（_ - （）等），用于别名匹配。
 func norm(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	return strings.NewReplacer(" ", "", "_", "", "-", "", "\t", "",
 		"（", "", "）", "", "(", "", ")", "").Replace(s)
 }
 
+// canonField 把任意列名（含别名）映射到标准列名，认不出返回空串。
 func canonField(col string) string {
 	if f, ok := fieldAliases[norm(col)]; ok {
 		return f
@@ -72,6 +78,7 @@ type Store struct {
 	primary   *fileState
 }
 
+// NewStore 构造 Store；归档章节标题为空时依次回退到环境变量、再回退到「归档」。
 func NewStore(dir string, backup bool, archTitle string) *Store {
 	title := strings.TrimSpace(archTitle)
 	if title == "" {
@@ -112,6 +119,7 @@ func (s *Store) Flush() error {
 	return nil
 }
 
+// Load 扫描目录下的所有 .md 文件，解析出主表与归档表；目录或文件不存在时自动建默认文件。
 func (s *Store) Load() error {
 	s.files = nil
 	s.primary = nil
@@ -168,6 +176,7 @@ func (s *Store) Load() error {
 	return nil
 }
 
+// loadFile 读取单个 md 文件，定位主表（必要时建表头），再尝试定位归档表并解析。
 func (s *Store) loadFile(path string) (*fileState, error) {
 	f := &fileState{Path: path, Name: filepath.Base(path)}
 	b, err := os.ReadFile(path)
@@ -217,6 +226,7 @@ func (s *Store) loadFile(path string) (*fileState, error) {
 	return f, nil
 }
 
+// createMainTableIn 在文件里补一张标准列的主表（空文件用整段默认模板，否则追加表头）。
 func (s *Store) createMainTableIn(f *fileState) {
 	blank := true
 	for _, l := range f.lines {
@@ -236,6 +246,7 @@ func (s *Store) createMainTableIn(f *fileState) {
 	f.dirty = true
 }
 
+// List 返回所有主表里的任务及其列顺序；每次调用会先重新 Load 以反映磁盘最新内容。
 func (s *Store) List() ([]Task, []string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -256,6 +267,7 @@ func (s *Store) List() ([]Task, []string, error) {
 	return all, cols, nil
 }
 
+// ListArchive 返回所有归档表里的任务。
 func (s *Store) ListArchive() ([]Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -271,6 +283,7 @@ func (s *Store) ListArchive() ([]Task, error) {
 	return all, nil
 }
 
+// Update 在锁内重新 Load 并执行修改回调，最后把标脏的文件统一写回磁盘。
 func (s *Store) Update(fn func(st *Store) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -290,6 +303,7 @@ func (s *Store) Update(fn func(st *Store) error) error {
 	return nil
 }
 
+// Archive 把满足 pred 的主表任务搬进归档表（未填完成时间的补上今天），返回归档数量。
 func (s *Store) Archive(pred func(Task) bool) int {
 	total := 0
 	today := util.Today().Format("2006-01-02")
@@ -325,6 +339,7 @@ func (s *Store) Archive(pred func(Task) bool) int {
 	return total
 }
 
+// AddTask 往主文件（primary）追加一条任务。
 func (s *Store) AddTask(t Task) error {
 	if s.primary == nil {
 		return errors.New("没有可用的任务文件")
@@ -335,6 +350,7 @@ func (s *Store) AddTask(t Task) error {
 	return nil
 }
 
+// UpdateTask 找到指定 ID 的任务并就地修改，找不到返回 ErrNotFound。
 func (s *Store) UpdateTask(id string, fn func(*Task) error) error {
 	for _, f := range s.files {
 		for i := range f.main.tasks {
@@ -351,6 +367,7 @@ func (s *Store) UpdateTask(id string, fn func(*Task) error) error {
 	return ErrNotFound
 }
 
+// SetTaskStatus 直接改某条任务的状态列。
 func (s *Store) SetTaskStatus(id, status string) error {
 	for _, f := range s.files {
 		for i := range f.main.tasks {
@@ -364,6 +381,7 @@ func (s *Store) SetTaskStatus(id, status string) error {
 	return ErrNotFound
 }
 
+// RemoveTask 从主表删除指定 ID 的任务。
 func (s *Store) RemoveTask(id string) error {
 	for _, f := range s.files {
 		for i := range f.main.tasks {
@@ -377,6 +395,7 @@ func (s *Store) RemoveTask(id string) error {
 	return ErrNotFound
 }
 
+// ensureArchiveIn 确保文件里有归档表：没有补一个「## 标题」+表头，并保证含「完成时间」列。
 func (s *Store) ensureArchiveIn(f *fileState) {
 	if f.arch != nil {
 		hasDoneAt := false
@@ -421,6 +440,7 @@ func (s *Store) ensureArchiveIn(f *fileState) {
 	f.dirty = true
 }
 
+// NextID 在所有主表/归档表里取最大数字 ID，返回下一个可用 ID（连续编号）。
 func (s *Store) NextID() string {
 	max := 0
 	scan := func(ts []Task) {
@@ -441,6 +461,8 @@ func (s *Store) NextID() string {
 	return strconv.Itoa(max + 1)
 }
 
+// TouchAddedDates 给「已知 ID 中尚未填添加日期」的任务补上今天，并把新 ID 并入 known；
+// 用于 daemon 定时扫描时为新任务打上添加时间。
 func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -493,6 +515,7 @@ func (s *Store) TouchAddedDates(known map[string]bool) (map[string]bool, error) 
 	return known, nil
 }
 
+// CollectKnownIDs 收集当前所有任务 ID，供 daemon 初始化时建立已知集合。
 func (s *Store) CollectKnownIDs() (map[string]bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -526,6 +549,7 @@ func (s *Store) CollectKnownIDs() (map[string]bool, error) {
 	return known, nil
 }
 
+// flushFile 把内存里的表格重新渲染，替换原文件对应行区间；可选先备份，再原子写入。
 func (s *Store) flushFile(f *fileState) error {
 	type repl struct {
 		start, end int
@@ -565,6 +589,7 @@ func (s *Store) flushFile(f *fileState) error {
 	return nil
 }
 
+// atomicWrite 先写临时文件再 rename 到目标，避免写一半时文件损坏；rename 失败会尝试删除旧文件重试。
 func atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".mdtask-*.tmp")
@@ -594,6 +619,7 @@ func atomicWrite(path string, data []byte) error {
 	return nil
 }
 
+// backupFile 把改写前的文件复制到 .mdtask-backup/，并只保留最近 10 份备份。
 func backupFile(path string) {
 	src, err := os.ReadFile(path)
 	if err != nil {

@@ -1,3 +1,4 @@
+// Package report 中的日报/周报/月报/年报构建函数（与 report.go 同包）。
 package report
 
 import (
@@ -9,6 +10,7 @@ import (
 	"mdtask/internal/util"
 )
 
+// BuildDaily 生成日报：统计「昨天」完成的任务 + 当前待办中优先级最高的前 5 项。
 func BuildDaily(archived, open []store.Task) (subject string, body string, err error) {
 	today := util.Today()
 	yesterday := today.AddDate(0, 0, -1)
@@ -27,6 +29,7 @@ func BuildDaily(archived, open []store.Task) (subject string, body string, err e
 	return subject, sb.String(), nil
 }
 
+// BuildWeekly 生成周报：统计「上周一~上周日」完成的任务 + 待办前 10 项。
 func BuildWeekly(archived, open []store.Task) (subject string, body string, err error) {
 	today := util.Today()
 
@@ -50,6 +53,7 @@ func BuildWeekly(archived, open []store.Task) (subject string, body string, err 
 	return subject, sb.String(), nil
 }
 
+// BuildMonthly 生成月报：统计「上月」完成的任务（含按优先级/分布统计）+ 待办前 10 项。
 func BuildMonthly(archived, open []store.Task) (subject string, body string, err error) {
 	today := util.Today()
 	firstOfThisMonth := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
@@ -87,6 +91,7 @@ func BuildMonthly(archived, open []store.Task) (subject string, body string, err
 	return subject, sb.String(), nil
 }
 
+// BuildYearly 生成年报：统计「去年全年」完成的任务（按优先级与月份分布）+ 待办前 10 项。
 func BuildYearly(archived, open []store.Task) (subject string, body string, err error) {
 	today := util.Today()
 	lastYear := today.Year() - 1

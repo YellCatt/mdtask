@@ -26,6 +26,7 @@ type yamlLine struct {
 	text   string
 }
 
+// parseYAML 把配置文本拆成「去注释、计缩进」后的行序列，再递归解析成节点树。
 func parseYAML(src string) (*yamlNode, error) {
 	var ls []yamlLine
 	for _, raw := range strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n") {
@@ -53,6 +54,7 @@ func parseYAML(src string) (*yamlNode, error) {
 	return n, nil
 }
 
+// parseBlock 解析同一缩进层级下的一个 map 或 list 块，返回解析出的节点与消费到的行号。
 func parseBlock(ls []yamlLine, i, indent int) (*yamlNode, int) {
 	if i >= len(ls) {
 		return &yamlNode{kind: kindMap, items: map[string]*yamlNode{}}, i
@@ -90,6 +92,7 @@ func parseBlock(ls []yamlLine, i, indent int) (*yamlNode, int) {
 	return n, i
 }
 
+// scalarNode 把一段文本转成 scalar 或 [a,b] 内联列表节点。
 func scalarNode(s string) *yamlNode {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
@@ -105,6 +108,7 @@ func scalarNode(s string) *yamlNode {
 	return &yamlNode{kind: kindScalar, scalar: unquote(s)}
 }
 
+// isSeqItem 判断一行是否为列表项（以 "-" 或 "- " 开头）。
 func isSeqItem(s string) bool {
 	return s == "-" || strings.HasPrefix(s, "- ")
 }
@@ -136,6 +140,7 @@ func splitKV(s string) (string, string, bool) {
 	return unquote(strings.TrimSpace(s)), "", false
 }
 
+// stripComment 去掉行内注释；只在引号外、且 # 前面是空白时才当注释处理，避免误删内容。
 func stripComment(line string) string {
 	var inQ byte
 	for i := 0; i < len(line); i++ {
@@ -157,6 +162,7 @@ func stripComment(line string) string {
 	return line
 }
 
+// unquote 去掉字符串首尾的单/双引号（若成对）。
 func unquote(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 {
@@ -169,6 +175,7 @@ func unquote(s string) string {
 
 // ---------- Accessors ----------
 
+// val 取 map 节点下某个 key 对应的子节点。
 func (n *yamlNode) val(key string) (*yamlNode, bool) {
 	if n == nil || n.kind != kindMap {
 		return nil, false
@@ -184,6 +191,7 @@ func (n *yamlNode) str() string {
 	return n.scalar
 }
 
+// intVal 把 scalar 解析成整数，失败返回 (0,false)。
 func (n *yamlNode) intVal() (int, bool) {
 	if n == nil {
 		return 0, false
@@ -195,6 +203,7 @@ func (n *yamlNode) intVal() (int, bool) {
 	return v, true
 }
 
+// bool 把 scalar 解析成布尔（兼容 true/yes/on/1 与 false/no/off/0），失败返回 (false,false)。
 func (n *yamlNode) bool() (bool, bool) {
 	if n == nil {
 		return false, false
@@ -208,6 +217,7 @@ func (n *yamlNode) bool() (bool, bool) {
 	return false, false
 }
 
+// strings 把节点展开成字符串切片：列表逐项取值，单个 scalar 返回单元素切片。
 func (n *yamlNode) strings() []string {
 	if n == nil {
 		return nil

@@ -1,3 +1,5 @@
+// Package mail 负责通过 SMTP 发送报告邮件（目前支持 465 直连 TLS，
+// 以及其它端口的 STARTTLS），并对主题做 UTF-8 Base64 编码以支持中文。
 package mail
 
 import (
@@ -14,6 +16,8 @@ import (
 	"mdtask/internal/logger"
 )
 
+// Send 按配置连上 SMTP 服务器、认证并发送一封纯文本邮件；多个收件人用逗号分隔。
+// 每步都记录耗时与错误，方便排查邮件发送问题。
 func Send(cfg *config.Config, subject, body string) error {
 	start := time.Now()
 
@@ -146,6 +150,7 @@ func Send(cfg *config.Config, subject, body string) error {
 	return nil
 }
 
+// buildMessage 拼出符合 RFC 822 的邮件头与正文；主题用 =?UTF-8?B? 编码以支持中文。
 func buildMessage(from string, to []string, subject, body string) string {
 	now := time.Now().Format(time.RFC1123Z)
 	headers := []string{
@@ -159,6 +164,7 @@ func buildMessage(from string, to []string, subject, body string) string {
 	return strings.Join(headers, "\r\n") + "\r\n\r\n" + body + "\r\n"
 }
 
+// b64 是标准 Base64 编码的简写。
 func b64(s string) string {
 	return base64.StdEncoding.EncodeToString([]byte(s))
 }

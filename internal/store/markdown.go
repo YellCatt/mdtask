@@ -4,12 +4,14 @@ import "strings"
 
 // ---------- 扫描 md ----------
 
+// defaultDoc 返回新建 md 文件时使用的默认模板（标题 + 标准列的主表）。
 func defaultDoc() string {
 	return "# 任务清单\n\n" +
 		"| 状态 | ID | 标题 | 优先级 | 截止日期 | 备注 | 添加日期 |\n" +
 		"|------|----|------|--------|----------|------|----------|\n"
 }
 
+// headerRows 生成 markdown 表头行与分隔行（| --- |）。
 func headerRows(cols []string) []string {
 	sep := make([]string, len(cols))
 	for i := range sep {
@@ -18,10 +20,12 @@ func headerRows(cols []string) []string {
 	return []string{"| " + strings.Join(cols, " | ") + " |", "| " + strings.Join(sep, " | ") + " |"}
 }
 
+// isTableRow 判断一行是否为表格行（以 | 开头）。
 func isTableRow(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), "|")
 }
 
+// isSeparatorRow 判断一行是否为表格分隔行（去掉 | 和空格后只剩 -）。
 func isSeparatorRow(line string) bool {
 	l := strings.TrimSpace(line)
 	if !strings.HasPrefix(l, "|") {
@@ -105,6 +109,7 @@ func splitRow(line string) []string {
 	return cells
 }
 
+// unescapeCell 读入时把转义还原：\| 变 |，<br> 变换行。
 func unescapeCell(s string) string {
 	s = strings.ReplaceAll(s, "\\|", "|")
 	s = strings.ReplaceAll(s, "<br>", "\n")
@@ -112,6 +117,7 @@ func unescapeCell(s string) string {
 	return s
 }
 
+// escapeCell 写出时转义：| 变 \|，换行变 <br>，避免破坏表格结构。
 func escapeCell(s string) string {
 	s = strings.ReplaceAll(s, "|", "\\|")
 	s = strings.ReplaceAll(s, "\r\n", "\n")
@@ -119,6 +125,7 @@ func escapeCell(s string) string {
 	return s
 }
 
+// escapeAll 对一列字符串批量做 escapeCell。
 func escapeAll(ss []string) []string {
 	out := make([]string, len(ss))
 	for i, s := range ss {

@@ -1,3 +1,4 @@
+// Package report 负责根据归档/待办任务生成日报、周报、月报、年报的纯文本正文。
 package report
 
 import (
@@ -18,6 +19,7 @@ const (
 
 var prioOrder = []string{"P0", "P1", "P2", "P3", "P4"}
 
+// sortByPrio 按优先级权重降序排序（权重相同按 ID 升序），不改变原切片。
 func sortByPrio(ts []store.Task) []store.Task {
 	out := append([]store.Task(nil), ts...)
 	sort.SliceStable(out, func(i, j int) bool {
@@ -30,12 +32,14 @@ func sortByPrio(ts []store.Task) []store.Task {
 	return out
 }
 
+// sortDoneByDoneAt 按完成时间升序排序（用于周/月/年报中按时间列出已完成项）。
 func sortDoneByDoneAt(ts []store.Task) {
 	sort.SliceStable(ts, func(i, j int) bool {
 		return strings.TrimSpace(ts[i].DoneAt) < strings.TrimSpace(ts[j].DoneAt)
 	})
 }
 
+// doneInRange 从归档任务里挑出「完成时间落在 [from,to] 闭区间」的任务（按字符串日期比较）。
 func doneInRange(archived []store.Task, from, to time.Time) []store.Task {
 	fromS := from.Format("2006-01-02")
 	toS := to.Format("2006-01-02")
@@ -52,6 +56,7 @@ func doneInRange(archived []store.Task, from, to time.Time) []store.Task {
 	return hit
 }
 
+// prioCountMap 统计各优先级（P0~P4）的任务数量。
 func prioCountMap(tasks []store.Task) map[string]int {
 	m := map[string]int{}
 	for _, t := range tasks {
@@ -61,6 +66,7 @@ func prioCountMap(tasks []store.Task) map[string]int {
 	return m
 }
 
+// topByPrio 返回待办里优先级最高的前 n 项（不足 n 则全返回）。
 func topByPrio(open []store.Task, n int) []store.Task {
 	sorted := sortByPrio(open)
 	if len(sorted) < n {
@@ -69,12 +75,14 @@ func topByPrio(open []store.Task, n int) []store.Task {
 	return sorted[:n]
 }
 
+// writeHeader 写报告大标题与分隔线。
 func writeHeader(sb *strings.Builder, emoji, title string) {
 	sb.WriteString(fmt.Sprintf("%s %s\n", emoji, title))
 	sb.WriteString(sepHead)
 	sb.WriteString("\n\n")
 }
 
+// writeDoneSection 写「已完成」区块；showDoneAt 为 true 时每行带完成时间，空则显示提示语。
 func writeDoneSection(sb *strings.Builder, label string, tasks []store.Task, emptyMsg string, showDoneAt bool) {
 	sb.WriteString(fmt.Sprintf("✅ %s (%d 项)\n", label, len(tasks)))
 	sb.WriteString(sepSub)
@@ -96,6 +104,7 @@ func writeDoneSection(sb *strings.Builder, label string, tasks []store.Task, emp
 	}
 }
 
+// writeOpenSection 写「待办」区块；只列 topN，并提示还有多少条优先级较低未列出。
 func writeOpenSection(sb *strings.Builder, label string, allOpen []store.Task, topN []store.Task) {
 	sb.WriteString("\n\n")
 	sb.WriteString(fmt.Sprintf("📋 %s: %d  —  最高优先的 %d 项\n", label, len(allOpen), len(topN)))
@@ -119,6 +128,7 @@ func writeOpenSection(sb *strings.Builder, label string, allOpen []store.Task, t
 	}
 }
 
+// writeFooter 写报告落款（生成时间）。
 func writeFooter(sb *strings.Builder, t time.Time) {
 	sb.WriteString(fmt.Sprintf(footerFmt, t.Format("2006-01-02 15:04:05")))
 }

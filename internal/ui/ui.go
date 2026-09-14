@@ -1,3 +1,5 @@
+// Package ui 负责终端展示：ANSI 颜色、按显示宽度对齐/截断中文与 emoji，
+// 以及根据截止日期、优先级给出颜色与提示文案。
 package ui
 
 import (
@@ -23,6 +25,7 @@ const (
 
 var useColor bool
 
+// InitColor 根据配置（always/never/auto）及环境变量、是否终端来决定是否启用彩色输出。
 func InitColor(color string) {
 	switch color {
 	case "always":
@@ -46,6 +49,7 @@ func InitColor(color string) {
 	useColor = err == nil && (fi.Mode()&os.ModeCharDevice) != 0
 }
 
+// paint 给字符串加 ANSI 颜色前缀/重置后缀；未启用颜色或空串时原样返回。
 func paint(c, s string) string {
 	if c == "" || !useColor || s == "" {
 		return s
@@ -57,6 +61,7 @@ func Color(c, s string) string { return paint(c, s) }
 
 // ---------- 终端宽度 ----------
 
+// runeWidth 返回单个字符的显示宽度：ASCII 占 1，大多数 CJK/emoji 占 2，变体选择符占 0。
 func runeWidth(r rune) int {
 	switch {
 	case r < 0x80:
@@ -82,6 +87,7 @@ func runeWidth(r rune) int {
 	return 1
 }
 
+// dispWidth 返回整串的显示宽度（按字符逐个累加 runeWidth）。
 func dispWidth(s string) int {
 	w := 0
 	for _, r := range s {
@@ -90,6 +96,7 @@ func dispWidth(s string) int {
 	return w
 }
 
+// pad 在字符串右侧补空格到目标显示宽度，用于表格列对齐。
 func pad(s string, w int) string {
 	n := w - dispWidth(s)
 	if n < 0 {
@@ -98,6 +105,7 @@ func pad(s string, w int) string {
 	return s + strings.Repeat(" ", n)
 }
 
+// Truncate 按显示宽度截断字符串，超出时以「…」结尾（保证不破坏双宽字符）。
 func Truncate(s string, max int) string {
 	if dispWidth(s) <= max {
 		return s
@@ -115,6 +123,7 @@ func Truncate(s string, max int) string {
 	return string(out) + "…"
 }
 
+// DueColor 根据截止日期返回逾期(红)/今天(黄)/未来(绿)的提示色，已结束或空则无色。
 func DueColor(t store.Task) string {
 	if t.Due == "" {
 		return ""
@@ -137,6 +146,7 @@ func DueColor(t store.Task) string {
 	}
 }
 
+// DueText 返回带「逾期 N 天/今天到期/还有 N 天」语义的截止日期文案。
 func DueText(t store.Task) string {
 	if t.Due == "" {
 		return ""
@@ -163,6 +173,7 @@ func DueText(t store.Task) string {
 	return t.Due
 }
 
+// PriorityColor 把 P0~P4 映射到颜色（P0/P1 红，P2 黄，P3 蓝，P4 灰）。
 func PriorityColor(p string) string {
 	switch strings.ToLower(strings.TrimSpace(p)) {
 	case "p0":

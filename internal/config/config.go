@@ -1,3 +1,5 @@
+// Package config 负责加载与解析 mdtask 的配置（目录、归档、报告、邮件等），
+// 并在缺少配置文件时自动生成一份带注释的默认 config.yaml。
 package config
 
 import (
@@ -9,6 +11,7 @@ import (
 	"mdtask/internal/status"
 )
 
+// Config 是 MDTask 的全部配置项；yaml tag 对应配置文件里的字段名。
 type Config struct {
 	Dir    string `yaml:"dir"`
 	Backup bool   `yaml:"backup"`
@@ -98,6 +101,7 @@ mail:
   timeout: 15
 `
 
+// Default 返回内置默认配置（与自动生成的 config.yaml 内容一致）。
 func Default() *Config {
 	c := &Config{Dir: "tasks", Backup: true, Color: "auto"}
 	c.Archive.Heading = "归档"
@@ -154,6 +158,7 @@ func Load(explicit string) (*Config, string, error) {
 	return cfg, target, nil
 }
 
+// loadBytes 把配置文本解析成 yaml 节点树并应用到 cfg 上。
 func loadBytes(cfg *Config, path string, b []byte) error {
 	root, err := parseYAML(string(b))
 	if err != nil {
@@ -163,6 +168,7 @@ func loadBytes(cfg *Config, path string, b []byte) error {
 	return nil
 }
 
+// writeDefault 把内置的默认配置文本写入指定路径（含目录创建）。
 func writeDefault(path string) error {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -172,6 +178,7 @@ func writeDefault(path string) error {
 	return os.WriteFile(path, []byte(configHelp), 0o644)
 }
 
+// apply 把解析出的 yaml 节点树逐项写入 Config，并对空值/非法值做兜底默认值。
 func apply(c *Config, n *yamlNode) {
 	if v, ok := n.val("dir"); ok && v.str() != "" {
 		c.Dir = v.str()
