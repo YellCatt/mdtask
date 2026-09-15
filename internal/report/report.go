@@ -93,6 +93,8 @@ func writeDoneSection(sb *strings.Builder, label string, tasks []store.Task, emp
 	for _, t := range tasks {
 		if showDoneAt {
 			sb.WriteString(fmt.Sprintf("\n  [%s]", strings.TrimSpace(t.DoneAt)))
+		} else {
+			sb.WriteString("\n ")
 		}
 		sb.WriteString(fmt.Sprintf(" #%s %s", t.ID, strings.TrimSpace(t.Title)))
 	}
