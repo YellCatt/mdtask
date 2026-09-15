@@ -82,6 +82,15 @@ func writeHeader(sb *strings.Builder, emoji, title string) {
 	sb.WriteString("\n\n")
 }
 
+// taskLine 返回任务的展示文本：#ID [优先级] 标题（优先级为空时不显示）。
+func taskLine(t store.Task) string {
+	p := strings.TrimSpace(t.Priority)
+	if p != "" {
+		return fmt.Sprintf("#%s [%s] %s", t.ID, p, strings.TrimSpace(t.Title))
+	}
+	return fmt.Sprintf("#%s %s", t.ID, strings.TrimSpace(t.Title))
+}
+
 // writeDoneSection 写「已完成」区块；showDoneAt 为 true 时每行带完成时间，空则显示提示语。
 func writeDoneSection(sb *strings.Builder, label string, tasks []store.Task, emptyMsg string, showDoneAt bool) {
 	sb.WriteString(fmt.Sprintf("✅ %s (%d 项)\n", label, len(tasks)))
@@ -96,7 +105,7 @@ func writeDoneSection(sb *strings.Builder, label string, tasks []store.Task, emp
 		} else {
 			sb.WriteString("\n ")
 		}
-		sb.WriteString(fmt.Sprintf(" #%s %s", t.ID, strings.TrimSpace(t.Title)))
+		sb.WriteString(" " + taskLine(t))
 	}
 }
 
@@ -110,7 +119,7 @@ func writeOpenSection(sb *strings.Builder, label string, allOpen []store.Task, t
 		return
 	}
 	for _, t := range topN {
-		sb.WriteString(fmt.Sprintf("\n  #%s %s", t.ID, strings.TrimSpace(t.Title)))
+		sb.WriteString("\n  " + taskLine(t))
 	}
 	remaining := len(allOpen) - len(topN)
 	if remaining > 0 {
