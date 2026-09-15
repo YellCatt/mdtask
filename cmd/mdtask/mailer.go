@@ -27,7 +27,7 @@ type sentTracker struct {
 }
 
 // dumpAllReports 启动期把四份报告一次性生成并写入 ./reports/<daily|week|month|year>/ 目录，便于调试。
-func dumpAllReports(st *store.Store) {
+func dumpAllReports(st *store.Store, cfg *config.Config) {
 	logger.Info("dumpAllReports: 启动时生成四份报告")
 	today := util.Today()
 
@@ -56,16 +56,16 @@ func dumpAllReports(st *store.Store) {
 	}
 	var results []entry
 
-	subject, body, err := report.BuildDaily(archived, open)
+	subject, body, err := report.BuildDaily(archived, open, cfg.Report.DailyTopN)
 	results = append(results, entry{"daily", today.AddDate(0, 0, -1).Format("2006-01-02") + ".txt", subject, body, err})
 
-	subject, body, err = report.BuildWeekly(archived, open)
+	subject, body, err = report.BuildWeekly(archived, open, cfg.Report.WeeklyTopN)
 	results = append(results, entry{"week", weekLabel(today) + ".txt", subject, body, err})
 
-	subject, body, err = report.BuildMonthly(archived, open)
+	subject, body, err = report.BuildMonthly(archived, open, cfg.Report.MonthlyTopN)
 	results = append(results, entry{"month", monthLabel(today) + ".txt", subject, body, err})
 
-	subject, body, err = report.BuildYearly(archived, open)
+	subject, body, err = report.BuildYearly(archived, open, cfg.Report.YearlyTopN)
 	results = append(results, entry{"year", yearLabel(today) + ".txt", subject, body, err})
 
 	for _, r := range results {
@@ -285,7 +285,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 				logger.Debug("daily 检查", "currKey", k, "tracker", tracker.dailyKey, "triggered", triggered)
 				return triggered
 			},
-			func() (string, string, error) { return report.BuildDaily(archived, open) },
+			func() (string, string, error) { return report.BuildDaily(archived, open, cfg.Report.DailyTopN) },
 			func(k string) { tracker.dailyKey = k },
 		},
 		{
@@ -307,7 +307,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 				logger.Debug("weekly 检查", "currKey", k, "tracker", tracker.weeklyKey, "triggered", triggered)
 				return triggered
 			},
-			func() (string, string, error) { return report.BuildWeekly(archived, open) },
+			func() (string, string, error) { return report.BuildWeekly(archived, open, cfg.Report.WeeklyTopN) },
 			func(k string) { tracker.weeklyKey = k },
 		},
 		{
@@ -325,7 +325,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 				logger.Debug("monthly 检查", "currKey", k, "tracker", tracker.monthlyKey, "triggered", triggered)
 				return triggered
 			},
-			func() (string, string, error) { return report.BuildMonthly(archived, open) },
+			func() (string, string, error) { return report.BuildMonthly(archived, open, cfg.Report.MonthlyTopN) },
 			func(k string) { tracker.monthlyKey = k },
 		},
 		{
@@ -350,7 +350,7 @@ func sendAllReports(st *store.Store, cfg *config.Config, tracker *sentTracker, n
 				logger.Debug("yearly 检查", "currKey", k, "tracker", tracker.yearlyKey, "triggered", triggered)
 				return triggered
 			},
-			func() (string, string, error) { return report.BuildYearly(archived, open) },
+			func() (string, string, error) { return report.BuildYearly(archived, open, cfg.Report.YearlyTopN) },
 			func(k string) { tracker.yearlyKey = k },
 		},
 	}

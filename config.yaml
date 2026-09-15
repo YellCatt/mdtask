@@ -44,6 +44,11 @@ report:
   monthly: 1
   # 年报：哪天出，格式 MM-DD，留空关掉
   yearly: "01-01"
+  # 日报/周报/月报/年报 待办列出前 N 项，0 表示全部列出
+  daily_top_n: 0
+  weekly_top_n: 0
+  monthly_top_n: 0
+  yearly_top_n: 0
 
 # 发邮件（mdtask mail 用）：把本机 IP 信息发到邮箱
 mail:

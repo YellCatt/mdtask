@@ -81,7 +81,7 @@ func runDaemon(st *store.Store, cfg *config.Config, configPath string) {
 
 	autoArchive(st, cfg)
 
-	dumpAllReports(st)
+	dumpAllReports(st, cfg)
 
 	logger.Info("启动邮件调度 goroutine")
 	go runMailer(st, cfg)

@@ -11,29 +11,29 @@ import (
 	"mdtask/internal/util"
 )
 
-// BuildDaily 生成日报：统计「昨天」完成的任务 + 当前待办中优先级最高的前 5 项。
-func BuildDaily(archived, open []store.Task) (subject string, body string, err error) {
-	logger.Debug("BuildDaily 开始", "archived", len(archived), "open", len(open))
+// BuildDaily 生成日报：统计「昨天」完成的任务 + 当前待办中优先级最高的前 topN 项（topN<=0 表示全部）。
+func BuildDaily(archived, open []store.Task, topN int) (subject string, body string, err error) {
+	logger.Debug("BuildDaily 开始", "archived", len(archived), "open", len(open), "topN", topN)
 	today := util.Today()
 	yesterday := today.AddDate(0, 0, -1)
 	yesterdayStr := yesterday.Format("2006-01-02")
 
 	doneYesterday := doneInRange(archived, yesterday, yesterday)
-	top5 := topByPrio(open, 5)
+	top := topByPrio(open, topN)
 
 	subject = fmt.Sprintf("MDTask 日报 · %s 完成 %d 项", yesterdayStr, len(doneYesterday))
 
 	var sb strings.Builder
 	writeHeader(&sb, "📅", fmt.Sprintf("MDTask 日报 — %s", yesterdayStr))
 	writeDoneSection(&sb, "昨日完成", doneYesterday, "（昨日没有完成任何任务）", false)
-	writeOpenSection(&sb, "待办总数", open, top5)
+	writeOpenSection(&sb, "待办总数", open, top)
 	writeFooter(&sb, today)
 	return subject, sb.String(), nil
 }
 
-// BuildWeekly 生成周报：统计「上周一~上周日」完成的任务 + 待办前 10 项。
-func BuildWeekly(archived, open []store.Task) (subject string, body string, err error) {
-	logger.Debug("BuildWeekly 开始", "archived", len(archived), "open", len(open))
+// BuildWeekly 生成周报：统计「上周一~上周日」完成的任务 + 待办前 topN 项（topN<=0 表示全部）。
+func BuildWeekly(archived, open []store.Task, topN int) (subject string, body string, err error) {
+	logger.Debug("BuildWeekly 开始", "archived", len(archived), "open", len(open), "topN", topN)
 	today := util.Today()
 
 	monday := util.MondayOf(today)
@@ -42,7 +42,7 @@ func BuildWeekly(archived, open []store.Task) (subject string, body string, err 
 
 	doneWeek := doneInRange(archived, lastMonday, lastSunday)
 	sortDoneByDoneAt(doneWeek)
-	top10 := topByPrio(open, 10)
+	top := topByPrio(open, topN)
 
 	subject = fmt.Sprintf("MDTask 周报 · %s ~ %s 完成 %d 项",
 		lastMonday.Format("2006-01-02"), lastSunday.Format("2006-01-02"), len(doneWeek))
@@ -51,14 +51,14 @@ func BuildWeekly(archived, open []store.Task) (subject string, body string, err 
 	writeHeader(&sb, "📆", fmt.Sprintf("MDTask 周报 — %s ~ %s",
 		lastMonday.Format("2006-01-02"), lastSunday.Format("2006-01-02")))
 	writeDoneSection(&sb, "上周完成", doneWeek, "（上周没有完成任何任务）", true)
-	writeOpenSection(&sb, "本周待办总数", open, top10)
+	writeOpenSection(&sb, "本周待办总数", open, top)
 	writeFooter(&sb, today)
 	return subject, sb.String(), nil
 }
 
-// BuildMonthly 生成月报：统计「上月」完成的任务（含按优先级/分布统计）+ 待办前 10 项。
-func BuildMonthly(archived, open []store.Task) (subject string, body string, err error) {
-	logger.Debug("BuildMonthly 开始", "archived", len(archived), "open", len(open))
+// BuildMonthly 生成月报：统计「上月」完成的任务（含按优先级/分布统计）+ 待办前 topN 项（topN<=0 表示全部）。
+func BuildMonthly(archived, open []store.Task, topN int) (subject string, body string, err error) {
+	logger.Debug("BuildMonthly 开始", "archived", len(archived), "open", len(open), "topN", topN)
 	today := util.Today()
 	firstOfThisMonth := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
 	firstOfLastMonth := firstOfThisMonth.AddDate(0, -1, 0)
@@ -66,7 +66,7 @@ func BuildMonthly(archived, open []store.Task) (subject string, body string, err
 
 	doneMonth := doneInRange(archived, firstOfLastMonth, lastOfLastMonth)
 	sortDoneByDoneAt(doneMonth)
-	top10 := topByPrio(open, 10)
+	top := topByPrio(open, topN)
 
 	monthLabel := firstOfLastMonth.Format("2006年01月")
 	subject = fmt.Sprintf("MDTask 月报 · %s 完成 %d 项", monthLabel, len(doneMonth))
@@ -90,14 +90,14 @@ func BuildMonthly(archived, open []store.Task) (subject string, body string, err
 		}
 	}
 
-	writeOpenSection(&sb, "当前待办总数", open, top10)
+	writeOpenSection(&sb, "当前待办总数", open, top)
 	writeFooter(&sb, today)
 	return subject, sb.String(), nil
 }
 
-// BuildYearly 生成年报：统计「去年全年」完成的任务（按优先级与月份分布）+ 待办前 10 项。
-func BuildYearly(archived, open []store.Task) (subject string, body string, err error) {
-	logger.Debug("BuildYearly 开始", "archived", len(archived), "open", len(open))
+// BuildYearly 生成年报：统计「去年全年」完成的任务（按优先级与月份分布）+ 待办前 topN 项（topN<=0 表示全部）。
+func BuildYearly(archived, open []store.Task, topN int) (subject string, body string, err error) {
+	logger.Debug("BuildYearly 开始", "archived", len(archived), "open", len(open), "topN", topN)
 	today := util.Today()
 	lastYear := today.Year() - 1
 	start := time.Date(lastYear, 1, 1, 0, 0, 0, 0, today.Location())
@@ -105,7 +105,7 @@ func BuildYearly(archived, open []store.Task) (subject string, body string, err 
 
 	doneYear := doneInRange(archived, start, end)
 	sortDoneByDoneAt(doneYear)
-	top10 := topByPrio(open, 10)
+	top := topByPrio(open, topN)
 
 	subject = fmt.Sprintf("MDTask 年报 · %d 年 完成 %d 项", lastYear, len(doneYear))
 
@@ -142,7 +142,7 @@ func BuildYearly(archived, open []store.Task) (subject string, body string, err 
 		}
 	}
 
-	writeOpenSection(&sb, "当前待办总数", open, top10)
+	writeOpenSection(&sb, "当前待办总数", open, top)
 	writeFooter(&sb, today)
 	return subject, sb.String(), nil
 }

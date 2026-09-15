@@ -24,11 +24,15 @@ type Config struct {
 	} `yaml:"archive"`
 
 	Report struct {
-		Times   []string `yaml:"times"`
+		Times    []string `yaml:"times"`
 		Interval int      `yaml:"interval"`
 		Weekly   int      `yaml:"weekly"`
 		Monthly  int      `yaml:"monthly"`
 		Yearly   string   `yaml:"yearly"`
+		DailyTopN   int  `yaml:"daily_top_n"`
+		WeeklyTopN  int  `yaml:"weekly_top_n"`
+		MonthlyTopN int  `yaml:"monthly_top_n"`
+		YearlyTopN  int  `yaml:"yearly_top_n"`
 	} `yaml:"report"`
 
 	Mail struct {
@@ -82,6 +86,11 @@ report:
   monthly: 1
   # 年报：哪天出，格式 MM-DD，留空关掉
   yearly: "01-01"
+  # 日报/周报/月报/年报 待办列出前 N 项，0 表示全部列出
+  daily_top_n: 0
+  weekly_top_n: 0
+  monthly_top_n: 0
+  yearly_top_n: 0
 
 # 发邮件（mdtask mail 用）：把本机 IP 信息发到邮箱
 mail:
@@ -112,6 +121,10 @@ func Default() *Config {
 	c.Report.Weekly = 1
 	c.Report.Monthly = 1
 	c.Report.Yearly = "01-01"
+	c.Report.DailyTopN = 0
+	c.Report.WeeklyTopN = 0
+	c.Report.MonthlyTopN = 0
+	c.Report.YearlyTopN = 0
 	c.Mail.SMTPHost = "smtp.qq.com"
 	c.Mail.SMTPPort = 465
 	c.Mail.FromEmail = "768305875@qq.com"
@@ -238,6 +251,24 @@ func apply(c *Config, n *yamlNode) {
 		}
 		if v, ok2 := m.val("yearly"); ok2 {
 			c.Report.Yearly = strings.TrimSpace(v.str())
+		}
+		for _, pair := range []struct {
+			key string
+			dst *int
+			def int
+		}{
+			{"daily_top_n", &c.Report.DailyTopN, 0},
+			{"weekly_top_n", &c.Report.WeeklyTopN, 0},
+			{"monthly_top_n", &c.Report.MonthlyTopN, 0},
+			{"yearly_top_n", &c.Report.YearlyTopN, 0},
+		} {
+			if v, ok2 := m.val(pair.key); ok2 {
+				if i, ok3 := v.intVal(); ok3 {
+					*pair.dst = i
+				} else {
+					*pair.dst = pair.def
+				}
+			}
 		}
 	}
 	if m, ok := n.val("mail"); ok {

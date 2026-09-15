@@ -66,11 +66,11 @@ func prioCountMap(tasks []store.Task) map[string]int {
 	return m
 }
 
-// topByPrio 返回待办里优先级最高的前 n 项（不足 n 则全返回）。
+// topByPrio 返回待办里优先级最高的前 n 项；n <= 0 表示全部返回。
 func topByPrio(open []store.Task, n int) []store.Task {
 	sorted := sortByPrio(open)
-	if len(sorted) < n {
-		n = len(sorted)
+	if n <= 0 || len(sorted) < n {
+		return sorted
 	}
 	return sorted[:n]
 }
@@ -109,10 +109,14 @@ func writeDoneSection(sb *strings.Builder, label string, tasks []store.Task, emp
 	}
 }
 
-// writeOpenSection 写「待办」区块；只列 topN，并提示还有多少条优先级较低未列出。
+// writeOpenSection 写「待办」区块；topN 由调用方决定——如果 topN 等于 allOpen，则不显示「还有 N 项」的提示。
 func writeOpenSection(sb *strings.Builder, label string, allOpen []store.Task, topN []store.Task) {
 	sb.WriteString("\n\n")
-	sb.WriteString(fmt.Sprintf("📋 %s: %d  —  最高优先的 %d 项\n", label, len(allOpen), len(topN)))
+	if len(topN) == len(allOpen) {
+		sb.WriteString(fmt.Sprintf("📋 %s: %d  —  全部列出\n", label, len(allOpen)))
+	} else {
+		sb.WriteString(fmt.Sprintf("📋 %s: %d  —  最高优先的 %d 项\n", label, len(allOpen), len(topN)))
+	}
 	sb.WriteString(sepSub)
 	if len(allOpen) == 0 {
 		sb.WriteString("\n（全部完成，没有待办！🎉）\n")
