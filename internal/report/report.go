@@ -94,13 +94,7 @@ func writeDoneSection(sb *strings.Builder, label string, tasks []store.Task, emp
 		if showDoneAt {
 			sb.WriteString(fmt.Sprintf("\n  [%s]", strings.TrimSpace(t.DoneAt)))
 		}
-		sb.WriteString(fmt.Sprintf(" #%s [%s] %s", t.ID, strings.TrimSpace(t.Priority), strings.TrimSpace(t.Title)))
-		if strings.TrimSpace(t.Due) != "" {
-			sb.WriteString(fmt.Sprintf("  (截止: %s)", strings.TrimSpace(t.Due)))
-		}
-		if strings.TrimSpace(t.Note) != "" {
-			sb.WriteString(fmt.Sprintf("  — %s", strings.TrimSpace(t.Note)))
-		}
+		sb.WriteString(fmt.Sprintf(" #%s %s", t.ID, strings.TrimSpace(t.Title)))
 	}
 }
 
@@ -114,13 +108,7 @@ func writeOpenSection(sb *strings.Builder, label string, allOpen []store.Task, t
 		return
 	}
 	for _, t := range topN {
-		sb.WriteString(fmt.Sprintf("\n  #%s [%s] %s", t.ID, strings.TrimSpace(t.Priority), strings.TrimSpace(t.Title)))
-		if strings.TrimSpace(t.Due) != "" {
-			sb.WriteString(fmt.Sprintf("  (截止: %s)", strings.TrimSpace(t.Due)))
-		}
-		if strings.TrimSpace(t.Note) != "" {
-			sb.WriteString(fmt.Sprintf("  — %s", strings.TrimSpace(t.Note)))
-		}
+		sb.WriteString(fmt.Sprintf("\n  #%s %s", t.ID, strings.TrimSpace(t.Title)))
 	}
 	remaining := len(allOpen) - len(topN)
 	if remaining > 0 {
