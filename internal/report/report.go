@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"mdtask/internal/status"
 	"mdtask/internal/store"
 	"mdtask/internal/util"
 )
@@ -73,6 +74,31 @@ func topByPrio(open []store.Task, n int) []store.Task {
 		return sorted
 	}
 	return sorted[:n]
+}
+
+// filterDoing 从任务列表中筛出状态为「进行中」的项，按优先级降序排序后返回。
+func filterDoing(tasks []store.Task) []store.Task {
+	var hit []store.Task
+	for _, t := range tasks {
+		if status.IsDoing(t.Status) {
+			hit = append(hit, t)
+		}
+	}
+	return sortByPrio(hit)
+}
+
+// writeDoingSection 写「进行中未完成」区块；没有时打印提示语。
+func writeDoingSection(sb *strings.Builder, label string, tasks []store.Task, emptyMsg string) {
+	sb.WriteString("\n\n")
+	sb.WriteString(fmt.Sprintf("⏸️ %s (%d 项)\n", label, len(tasks)))
+	sb.WriteString(sepSub)
+	if len(tasks) == 0 {
+		sb.WriteString(fmt.Sprintf("\n%s\n", emptyMsg))
+		return
+	}
+	for _, t := range tasks {
+		sb.WriteString("\n  " + taskLine(t))
+	}
 }
 
 // writeHeader 写报告大标题与分隔线。

@@ -20,12 +20,14 @@ func BuildDaily(archived, open []store.Task, topN int) (subject string, body str
 
 	doneYesterday := doneInRange(archived, yesterday, yesterday)
 	top := topByPrio(open, topN)
+	doing := filterDoing(open)
 
 	subject = fmt.Sprintf("MDTask 日报 · %s 完成 %d 项", yesterdayStr, len(doneYesterday))
 
 	var sb strings.Builder
 	writeHeader(&sb, "📅", fmt.Sprintf("MDTask 日报 — %s", yesterdayStr))
 	writeDoneSection(&sb, "昨日完成", doneYesterday, "（昨日没有完成任何任务）", false)
+	writeDoingSection(&sb, "执行中未完成", doing, "（当前没有正在进行的任务）")
 	writeOpenSection(&sb, "待办总数", open, top)
 	writeFooter(&sb, today)
 	return subject, sb.String(), nil
@@ -43,6 +45,7 @@ func BuildWeekly(archived, open []store.Task, topN int) (subject string, body st
 	doneWeek := doneInRange(archived, lastMonday, lastSunday)
 	sortDoneByDoneAt(doneWeek)
 	top := topByPrio(open, topN)
+	doing := filterDoing(open)
 
 	subject = fmt.Sprintf("MDTask 周报 · %s ~ %s 完成 %d 项",
 		lastMonday.Format("2006-01-02"), lastSunday.Format("2006-01-02"), len(doneWeek))
@@ -51,6 +54,7 @@ func BuildWeekly(archived, open []store.Task, topN int) (subject string, body st
 	writeHeader(&sb, "📆", fmt.Sprintf("MDTask 周报 — %s ~ %s",
 		lastMonday.Format("2006-01-02"), lastSunday.Format("2006-01-02")))
 	writeDoneSection(&sb, "上周完成", doneWeek, "（上周没有完成任何任务）", true)
+	writeDoingSection(&sb, "执行中未完成", doing, "（当前没有正在进行的任务）")
 	writeOpenSection(&sb, "本周待办总数", open, top)
 	writeFooter(&sb, today)
 	return subject, sb.String(), nil
@@ -67,6 +71,7 @@ func BuildMonthly(archived, open []store.Task, topN int) (subject string, body s
 	doneMonth := doneInRange(archived, firstOfLastMonth, lastOfLastMonth)
 	sortDoneByDoneAt(doneMonth)
 	top := topByPrio(open, topN)
+	doing := filterDoing(open)
 
 	monthLabel := firstOfLastMonth.Format("2006年01月")
 	subject = fmt.Sprintf("MDTask 月报 · %s 完成 %d 项", monthLabel, len(doneMonth))
@@ -90,6 +95,7 @@ func BuildMonthly(archived, open []store.Task, topN int) (subject string, body s
 		}
 	}
 
+	writeDoingSection(&sb, "执行中未完成", doing, "（当前没有正在进行的任务）")
 	writeOpenSection(&sb, "当前待办总数", open, top)
 	writeFooter(&sb, today)
 	return subject, sb.String(), nil
@@ -106,6 +112,7 @@ func BuildYearly(archived, open []store.Task, topN int) (subject string, body st
 	doneYear := doneInRange(archived, start, end)
 	sortDoneByDoneAt(doneYear)
 	top := topByPrio(open, topN)
+	doing := filterDoing(open)
 
 	subject = fmt.Sprintf("MDTask 年报 · %d 年 完成 %d 项", lastYear, len(doneYear))
 
@@ -142,6 +149,7 @@ func BuildYearly(archived, open []store.Task, topN int) (subject string, body st
 		}
 	}
 
+	writeDoingSection(&sb, "执行中未完成", doing, "（当前没有正在进行的任务）")
 	writeOpenSection(&sb, "当前待办总数", open, top)
 	writeFooter(&sb, today)
 	return subject, sb.String(), nil

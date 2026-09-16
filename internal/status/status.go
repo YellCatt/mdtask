@@ -91,6 +91,11 @@ func IsHold(v string) bool {
 	return DefOf(v) == &defs[statusIndex["hold"]]
 }
 
+// IsDoing 判断是否为「进行中」状态；按定义下标比较，不受自定义 emoji 影响。
+func IsDoing(v string) bool {
+	return DefOf(v) == &defs[statusIndex["doing"]]
+}
+
 // RankOf 返回状态排序权重，未结束且更紧急的状态权重大；空状态当作普通待办。
 func RankOf(v string) int {
 	if strings.TrimSpace(v) == "" {
