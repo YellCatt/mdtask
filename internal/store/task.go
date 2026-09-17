@@ -168,7 +168,12 @@ func (tb *tbl) parse(lines []string) (dirty bool) {
 }
 
 func (tb *tbl) render() []string {
-	rows := make([]string, 0, len(tb.tasks)+2)
+	hasData := len(tb.tasks) > 0
+	rowCount := len(tb.tasks)
+	if !hasData {
+		rowCount = 1
+	}
+	rows := make([]string, 0, rowCount+2)
 	rows = append(rows, "| "+strings.Join(escapeAll(tb.Columns), " | ")+" |")
 	sep := make([]string, len(tb.Columns))
 	for i := range sep {
@@ -181,6 +186,13 @@ func (tb *tbl) render() []string {
 			vals[j] = escapeCell(tb.tasks[i].Get(col))
 		}
 		rows = append(rows, "| "+strings.Join(vals, " | ")+" |")
+	}
+	if !hasData {
+		empty := make([]string, len(tb.Columns))
+		for i := range empty {
+			empty[i] = ""
+		}
+		rows = append(rows, "| "+strings.Join(empty, " | ")+" |")
 	}
 	return rows
 }
